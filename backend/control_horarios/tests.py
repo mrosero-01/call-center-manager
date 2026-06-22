@@ -321,7 +321,7 @@ class DjangoScheduleRepositoryTests(TestCase):
         )
         self.assertEqual(schedule.days.count(), 2)
 
-    def test_replaces_days_not_present_in_new_schedule(self):
+    def test_keeps_days_not_present_in_new_schedule(self):
         schedule = OperationSchedule.objects.create(
             tenant=self.tenant,
             location=self.location,
@@ -352,8 +352,19 @@ class DjangoScheduleRepositoryTests(TestCase):
             ],
         )
 
-        self.assertEqual(list(result["days"].keys()), ["Mon"])
-        self.assertFalse(schedule.days.filter(day_of_week="Wed").exists())
+        self.assertEqual(
+            result["days"]["Mon"],
+            [
+                {"start": "10:00", "end": "16:00"},
+            ],
+        )
+        self.assertEqual(
+            result["days"]["Wed"],
+            [
+                {"start": "08:00", "end": "12:00"},
+            ],
+        )
+        self.assertTrue(schedule.days.filter(day_of_week="Wed").exists())
 
     def test_gets_location_astdb_family(self):
         astdb_family = self.repository.get_location_astdb_family(
@@ -448,6 +459,51 @@ class OperationScheduleApiTests(APITestCase):
         self.assertEqual(
             ScheduleChangeLog.objects.get().reason,
             "Extension por campana especial",
+        )
+
+    def test_api_keeps_omitted_existing_days(self):
+        schedule = OperationSchedule.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            timezone="America/Bogota",
+        )
+        OperationScheduleDay.objects.create(
+            schedule=schedule,
+            day_of_week="Tue",
+            ranges=[
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Cambio solo de lunes",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "20:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["days"]["Tue"],
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+        self.assertTrue(
+            OperationScheduleDay.objects.filter(
+                schedule=schedule,
+                day_of_week="Tue",
+            ).exists()
         )
 
     def test_user_without_membership_cannot_update_schedule(self):

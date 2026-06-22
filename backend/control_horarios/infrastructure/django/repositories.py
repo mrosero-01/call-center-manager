@@ -38,17 +38,13 @@ class DjangoScheduleRepository:
             location=location,
             defaults={"timezone": timezone},
         )
-        received_days = []
-
         for day in days:
-            received_days.append(day.day_of_week)
             OperationScheduleDay.objects.update_or_create(
                 schedule=schedule,
                 day_of_week=day.day_of_week,
                 defaults={"ranges": list(day.ranges)},
             )
 
-        schedule.days.exclude(day_of_week__in=received_days).delete()
         schedule.refresh_from_db()
 
         return self._build_schedule_snapshot(schedule)
