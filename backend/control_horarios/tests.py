@@ -1,11 +1,12 @@
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APITestCase
 
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.use_cases import UpdateOperationSchedule
-from .infrastructure.django.repositories import DjangoScheduleRepository
 from .infrastructure.asterisk.schedule_formatter import (
     build_schedule_astdb_key,
     build_schedule_astdb_path,
@@ -13,12 +14,14 @@ from .infrastructure.asterisk.schedule_formatter import (
     format_ranges_for_astdb,
 )
 from .infrastructure.asterisk.schedule_publisher import AmiSchedulePublisher
+from .infrastructure.django.repositories import DjangoScheduleRepository
 from .models import (
     CallCenterLocation,
     OperationSchedule,
     OperationScheduleDay,
     ScheduleChangeLog,
     Tenant,
+    TenantMembership,
 )
 
 
@@ -381,3 +384,113 @@ class DjangoScheduleRepositoryTests(TestCase):
         self.assertEqual(change_log.reason, "Extension por campana especial")
         self.assertEqual(change_log.before_value, before_value)
         self.assertEqual(change_log.after_value, after_value)
+
+
+class OperationScheduleApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PAS", code="pas")
+        self.location = CallCenterLocation.objects.create(
+            tenant=self.tenant,
+            name="ABA CLA",
+            code="aba_cla",
+            astdb_family="pas_aba_cla",
+        )
+        self.user = get_user_model().objects.create_user(
+            username="contratista",
+            password="test-pass",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant,
+            user=self.user,
+            role=TenantMembership.Role.ADMIN,
+        )
+        self.url = reverse(
+            "operation-schedule-update",
+            kwargs={"location_id": self.location.id},
+        )
+
+    def test_member_can_update_operation_schedule(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Extension por campana especial",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "14:00", "end": "20:00"},
+                    ],
+                },
+                {
+                    "day_of_week": "Tue",
+                    "ranges": [
+                        {"start": "08:00", "end": "18:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["timezone"], "America/Bogota")
+        self.assertEqual(
+            response.data["days"]["Mon"],
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "20:00"},
+            ],
+        )
+        self.assertEqual(OperationSchedule.objects.count(), 1)
+        self.assertEqual(OperationScheduleDay.objects.count(), 2)
+        self.assertEqual(ScheduleChangeLog.objects.count(), 1)
+        self.assertEqual(
+            ScheduleChangeLog.objects.get().reason,
+            "Extension por campana especial",
+        )
+
+    def test_user_without_membership_cannot_update_schedule(self):
+        other_user = get_user_model().objects.create_user(
+            username="externo",
+            password="test-pass",
+        )
+        self.client.force_authenticate(user=other_user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Cambio operativo",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(OperationSchedule.objects.count(), 0)
+        self.assertEqual(ScheduleChangeLog.objects.count(), 0)
+
+    def test_api_requires_change_reason(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("reason", response.data)

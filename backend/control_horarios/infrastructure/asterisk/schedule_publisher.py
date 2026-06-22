@@ -20,3 +20,10 @@ class AmiSchedulePublisher:
             key=key,
             value=value,
         )
+
+
+class NoOpSchedulePublisher:
+    """Publicador temporal para probar la API sin conectar AMI."""
+
+    def publish_day(self, astdb_family, day_of_week, ranges):
+        return None

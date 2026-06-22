@@ -4,8 +4,8 @@ from .models import OperationScheduleDay
 
 
 class ScheduleRangeSerializer(serializers.Serializer):
-    start = serializers.RegexField(regex=r"^\d{2}:\d{2}$")
-    end = serializers.RegexField(regex=r"^\d{2}:\d{2}$")
+    start = serializers.RegexField(regex=r"^([01]\d|2[0-3]):[0-5]\d$")
+    end = serializers.RegexField(regex=r"^([01]\d|2[0-3]):[0-5]\d$")
 
     def validate(self, attrs):
         if attrs["start"] >= attrs["end"]:
