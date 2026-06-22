@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase
 
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.use_cases import UpdateOperationSchedule
+from .infrastructure.django.repositories import DjangoScheduleRepository
 from .infrastructure.asterisk.schedule_formatter import (
     build_schedule_astdb_key,
     build_schedule_astdb_path,
@@ -11,6 +13,13 @@ from .infrastructure.asterisk.schedule_formatter import (
     format_ranges_for_astdb,
 )
 from .infrastructure.asterisk.schedule_publisher import AmiSchedulePublisher
+from .models import (
+    CallCenterLocation,
+    OperationSchedule,
+    OperationScheduleDay,
+    ScheduleChangeLog,
+    Tenant,
+)
 
 
 class FakeAmiClient:
@@ -258,3 +267,117 @@ class UpdateOperationScheduleTests(SimpleTestCase):
 
         with self.assertRaisesMessage(ValueError, "El inicio del rango debe ser menor al fin."):
             use_case.execute(command)
+
+
+class DjangoScheduleRepositoryTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PAS", code="pas")
+        self.location = CallCenterLocation.objects.create(
+            tenant=self.tenant,
+            name="ABA CLA",
+            code="aba_cla",
+            astdb_family="pas_aba_cla",
+        )
+        self.user = get_user_model().objects.create_user(
+            username="operador",
+            password="test-pass",
+        )
+        self.repository = DjangoScheduleRepository()
+
+    def test_saves_schedule_and_returns_snapshot(self):
+        result = self.repository.save_schedule(
+            tenant_id=self.tenant.id,
+            location_id=self.location.id,
+            timezone="America/Bogota",
+            days=[
+                ScheduleDayInput(
+                    day_of_week="Mon",
+                    ranges=[
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "14:00", "end": "18:00"},
+                    ],
+                ),
+                ScheduleDayInput(
+                    day_of_week="Tue",
+                    ranges=[
+                        {"start": "08:00", "end": "18:00"},
+                    ],
+                ),
+            ],
+        )
+
+        schedule = OperationSchedule.objects.get(location=self.location)
+
+        self.assertEqual(result["timezone"], "America/Bogota")
+        self.assertEqual(
+            result["days"]["Mon"],
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+        self.assertEqual(schedule.days.count(), 2)
+
+    def test_replaces_days_not_present_in_new_schedule(self):
+        schedule = OperationSchedule.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            timezone="America/Bogota",
+        )
+        OperationScheduleDay.objects.create(
+            schedule=schedule,
+            day_of_week="Mon",
+            ranges=[{"start": "08:00", "end": "12:00"}],
+        )
+        OperationScheduleDay.objects.create(
+            schedule=schedule,
+            day_of_week="Wed",
+            ranges=[{"start": "08:00", "end": "12:00"}],
+        )
+
+        result = self.repository.save_schedule(
+            tenant_id=self.tenant.id,
+            location_id=self.location.id,
+            timezone="America/Bogota",
+            days=[
+                ScheduleDayInput(
+                    day_of_week="Mon",
+                    ranges=[
+                        {"start": "10:00", "end": "16:00"},
+                    ],
+                ),
+            ],
+        )
+
+        self.assertEqual(list(result["days"].keys()), ["Mon"])
+        self.assertFalse(schedule.days.filter(day_of_week="Wed").exists())
+
+    def test_gets_location_astdb_family(self):
+        astdb_family = self.repository.get_location_astdb_family(
+            tenant_id=self.tenant.id,
+            location_id=self.location.id,
+        )
+
+        self.assertEqual(astdb_family, "pas_aba_cla")
+
+    def test_saves_change_log(self):
+        before_value = {"days": {"Mon": [{"start": "08:00", "end": "12:00"}]}}
+        after_value = {"days": {"Mon": [{"start": "08:00", "end": "18:00"}]}}
+
+        self.repository.save_change_log(
+            tenant_id=self.tenant.id,
+            location_id=self.location.id,
+            changed_by_id=self.user.id,
+            reason="Extension por campana especial",
+            before_value=before_value,
+            after_value=after_value,
+        )
+
+        change_log = ScheduleChangeLog.objects.get()
+
+        self.assertEqual(change_log.tenant, self.tenant)
+        self.assertEqual(change_log.location, self.location)
+        self.assertEqual(change_log.changed_by, self.user)
+        self.assertEqual(change_log.reason, "Extension por campana especial")
+        self.assertEqual(change_log.before_value, before_value)
+        self.assertEqual(change_log.after_value, after_value)

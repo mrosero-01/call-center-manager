@@ -15,6 +15,44 @@ class Tenant(models.Model):
         return self.name
 
 
+class TenantMembership(models.Model):
+    """Relacion entre un usuario de Django y un contratista."""
+
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Administrador"
+        OPERATOR = "operator", "Operador"
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tenant_memberships",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.OPERATOR,
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["tenant__name", "user__username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user"],
+                name="unique_user_membership_per_tenant",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user} en {self.tenant}"
+
+
 class CallCenterLocation(models.Model):
     """Lugar o unidad operativa del call center consultada por Asterisk."""
 

@@ -6,6 +6,7 @@ from .models import (
     OperationScheduleDay,
     ScheduleChangeLog,
     Tenant,
+    TenantMembership,
 )
 
 
@@ -13,6 +14,13 @@ from .models import (
 class TenantAdmin(admin.ModelAdmin):
     list_display = ("name", "code")
     search_fields = ("name", "code")
+
+
+@admin.register(TenantMembership)
+class TenantMembershipAdmin(admin.ModelAdmin):
+    list_display = ("user", "tenant", "role", "is_active")
+    list_filter = ("tenant", "role", "is_active")
+    search_fields = ("user__username", "tenant__name", "tenant__code")
 
 
 @admin.register(CallCenterLocation)

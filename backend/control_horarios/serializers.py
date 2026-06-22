@@ -1,0 +1,40 @@
+from rest_framework import serializers
+
+from .models import OperationScheduleDay
+
+
+class ScheduleRangeSerializer(serializers.Serializer):
+    start = serializers.RegexField(regex=r"^\d{2}:\d{2}$")
+    end = serializers.RegexField(regex=r"^\d{2}:\d{2}$")
+
+    def validate(self, attrs):
+        if attrs["start"] >= attrs["end"]:
+            raise serializers.ValidationError("El inicio debe ser menor al fin.")
+
+        return attrs
+
+
+class ScheduleDaySerializer(serializers.Serializer):
+    day_of_week = serializers.ChoiceField(choices=OperationScheduleDay.Weekday.choices)
+    ranges = ScheduleRangeSerializer(many=True, allow_empty=True)
+
+
+class UpdateOperationScheduleSerializer(serializers.Serializer):
+    timezone = serializers.CharField(default="America/Bogota")
+    reason = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    days = ScheduleDaySerializer(many=True, allow_empty=False)
+
+    def validate_days(self, days):
+        seen_days = set()
+
+        for day in days:
+            day_of_week = day["day_of_week"]
+
+            if day_of_week in seen_days:
+                raise serializers.ValidationError(
+                    f"El dia {day_of_week} esta repetido."
+                )
+
+            seen_days.add(day_of_week)
+
+        return days
