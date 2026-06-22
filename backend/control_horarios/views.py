@@ -55,6 +55,7 @@ class OperationScheduleUpdateView(APIView):
         return TenantMembership.objects.filter(
             tenant=location.tenant,
             user=user,
+            role=TenantMembership.Role.ADMIN,
             is_active=True,
         ).exists()
 

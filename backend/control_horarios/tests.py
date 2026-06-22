@@ -475,6 +475,36 @@ class OperationScheduleApiTests(APITestCase):
         self.assertEqual(OperationSchedule.objects.count(), 0)
         self.assertEqual(ScheduleChangeLog.objects.count(), 0)
 
+    def test_operator_membership_cannot_update_schedule(self):
+        operator = get_user_model().objects.create_user(
+            username="operador-tenant",
+            password="test-pass",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant,
+            user=operator,
+            role=TenantMembership.Role.OPERATOR,
+        )
+        self.client.force_authenticate(user=operator)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Cambio operativo",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(OperationSchedule.objects.count(), 0)
+        self.assertEqual(ScheduleChangeLog.objects.count(), 0)
+
     def test_api_requires_change_reason(self):
         self.client.force_authenticate(user=self.user)
         payload = {
