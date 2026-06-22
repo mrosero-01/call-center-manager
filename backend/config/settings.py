@@ -12,8 +12,13 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 
+from dotenv import load_dotenv
+import os
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR.parent / ".env")
 
 
 # Quick-start development settings - unsuitable for production
@@ -117,3 +122,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+ASTERISK_AMI_ENABLED = os.getenv("ASTERISK_AMI_ENABLED", "false").lower() == "true"
+ASTERISK_AMI_HOST = os.getenv("ASTERISK_AMI_HOST", "127.0.0.1")
+ASTERISK_AMI_PORT = int(os.getenv("ASTERISK_AMI_PORT", "5038"))
+ASTERISK_AMI_USERNAME = os.getenv("ASTERISK_AMI_USERNAME", "")
+ASTERISK_AMI_PASSWORD = os.getenv("ASTERISK_AMI_PASSWORD", "")
+ASTERISK_AMI_TIMEOUT = float(os.getenv("ASTERISK_AMI_TIMEOUT", "5"))

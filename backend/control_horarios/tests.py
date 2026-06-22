@@ -1,19 +1,26 @@
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.test import override_settings
 from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APITestCase
 
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.use_cases import UpdateOperationSchedule
+from .infrastructure.asterisk.ami_client import SocketAmiClient
+from .infrastructure.asterisk.factories import build_schedule_publisher
 from .infrastructure.asterisk.schedule_formatter import (
     build_schedule_astdb_key,
     build_schedule_astdb_path,
     build_schedule_astdb_value,
     format_ranges_for_astdb,
 )
-from .infrastructure.asterisk.schedule_publisher import AmiSchedulePublisher
+from .infrastructure.asterisk.schedule_publisher import (
+    AmiSchedulePublisher,
+    NoOpSchedulePublisher,
+)
 from .infrastructure.django.repositories import DjangoScheduleRepository
 from .models import (
     CallCenterLocation,
@@ -37,6 +44,33 @@ class FakeAmiClient:
                 "value": value,
             }
         )
+
+
+class FakeSocket:
+    def __init__(self, responses):
+        self.responses = [
+            response.encode("utf-8")
+            for response in responses
+        ]
+        self.sent_payloads = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
+    def sendall(self, payload):
+        self.sent_payloads.append(payload.decode("utf-8"))
+
+    def recv(self, buffer_size):
+        if not self.responses:
+            return b""
+
+        return self.responses.pop(0)
 
 
 class FakeScheduleRepository:
@@ -166,6 +200,95 @@ class AmiSchedulePublisherTests(SimpleTestCase):
                 }
             ],
         )
+
+
+class SocketAmiClientTests(SimpleTestCase):
+    def test_sends_login_dbput_and_logoff_actions(self):
+        fake_socket = FakeSocket(
+            responses=[
+                "Asterisk Call Manager/5.0\r\n\r\n",
+                "Response: Success\r\nMessage: Authentication accepted\r\n\r\n",
+                "Response: Success\r\nMessage: Updated database successfully\r\n\r\n",
+                "Response: Goodbye\r\n\r\n",
+            ]
+        )
+        client = SocketAmiClient(
+            host="127.0.0.1",
+            port=5038,
+            username="admin",
+            password="secret",
+        )
+
+        with patch(
+            "control_horarios.infrastructure.asterisk.ami_client.socket.create_connection",
+            return_value=fake_socket,
+        ) as create_connection:
+            client.db_put(
+                family="horario",
+                key="pas_aba_cla/Mon",
+                value="08:00-12:00|14:00-18:00",
+            )
+
+        create_connection.assert_called_once_with(("127.0.0.1", 5038), timeout=5)
+        sent_payload = "".join(fake_socket.sent_payloads)
+
+        self.assertIn("Action: Login\r\n", sent_payload)
+        self.assertIn("Username: admin\r\n", sent_payload)
+        self.assertIn("Secret: secret\r\n", sent_payload)
+        self.assertIn("Action: DBPut\r\n", sent_payload)
+        self.assertIn("Family: horario\r\n", sent_payload)
+        self.assertIn("Key: pas_aba_cla/Mon\r\n", sent_payload)
+        self.assertIn("Val: 08:00-12:00|14:00-18:00\r\n", sent_payload)
+        self.assertIn("Action: Logoff\r\n", sent_payload)
+
+    def test_sends_readonly_cli_command_action(self):
+        fake_socket = FakeSocket(
+            responses=[
+                "Asterisk Call Manager/5.0\r\n\r\n",
+                "Response: Success\r\nMessage: Authentication accepted\r\n\r\n",
+                "Response: Success\r\nOutput: /horario/pas_aba_cla/Mon\r\n\r\n",
+                "Response: Goodbye\r\n\r\n",
+            ]
+        )
+        client = SocketAmiClient(
+            host="127.0.0.1",
+            port=5038,
+            username="admin",
+            password="secret",
+        )
+
+        with patch(
+            "control_horarios.infrastructure.asterisk.ami_client.socket.create_connection",
+            return_value=fake_socket,
+        ):
+            response = client.command("database show horario")
+
+        sent_payload = "".join(fake_socket.sent_payloads)
+
+        self.assertIn("Action: Command\r\n", sent_payload)
+        self.assertIn("Command: database show horario\r\n", sent_payload)
+        self.assertIn("/horario/pas_aba_cla/Mon", response)
+
+
+class SchedulePublisherFactoryTests(SimpleTestCase):
+    @override_settings(ASTERISK_AMI_ENABLED=False)
+    def test_builds_noop_publisher_when_ami_is_disabled(self):
+        publisher = build_schedule_publisher()
+
+        self.assertIsInstance(publisher, NoOpSchedulePublisher)
+
+    @override_settings(
+        ASTERISK_AMI_ENABLED=True,
+        ASTERISK_AMI_HOST="10.0.0.5",
+        ASTERISK_AMI_PORT=5038,
+        ASTERISK_AMI_USERNAME="admin",
+        ASTERISK_AMI_PASSWORD="secret",
+        ASTERISK_AMI_TIMEOUT=3,
+    )
+    def test_builds_ami_publisher_when_ami_is_enabled(self):
+        publisher = build_schedule_publisher()
+
+        self.assertIsInstance(publisher, AmiSchedulePublisher)
 
 
 class UpdateOperationScheduleTests(SimpleTestCase):

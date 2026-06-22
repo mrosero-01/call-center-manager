@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.use_cases import UpdateOperationSchedule
-from .infrastructure.asterisk.schedule_publisher import NoOpSchedulePublisher
+from .infrastructure.asterisk.factories import build_schedule_publisher
 from .infrastructure.django.repositories import DjangoScheduleRepository
 from .models import CallCenterLocation, TenantMembership
 from .serializers import UpdateOperationScheduleSerializer
@@ -35,7 +35,7 @@ class OperationScheduleUpdateView(APIView):
         )
         use_case = UpdateOperationSchedule(
             repository=DjangoScheduleRepository(),
-            publisher=NoOpSchedulePublisher(),
+            publisher=build_schedule_publisher(),
         )
 
         try:
