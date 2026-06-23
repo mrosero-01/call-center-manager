@@ -81,6 +81,11 @@ class CallCenterLocation(models.Model):
 class OperationSchedule(models.Model):
     """Horario vigente de operación para un lugar de call center."""
 
+    class SyncStatus(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        SYNCED = "synced", "Sincronizado"
+        FAILED = "failed", "Fallido"
+
     tenant = models.ForeignKey(
         Tenant,
         on_delete=models.PROTECT,
@@ -92,6 +97,13 @@ class OperationSchedule(models.Model):
         related_name="operation_schedule",
     )
     timezone = models.CharField(max_length=64, default="America/Bogota")
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SyncStatus.choices,
+        default=SyncStatus.PENDING,
+    )
+    last_sync_error = models.TextField(blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -164,3 +176,63 @@ class ScheduleChangeLog(models.Model):
 
     def __str__(self):
         return f"Cambio de horario en {self.location} por {self.changed_by}"
+
+
+class ScheduleSyncJob(models.Model):
+    """Trabajo pendiente para sincronizar un horario hacia Asterisk."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        SYNCED = "synced", "Sincronizado"
+        FAILED = "failed", "Fallido"
+
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name="schedule_sync_jobs",
+    )
+    location = models.ForeignKey(
+        CallCenterLocation,
+        on_delete=models.PROTECT,
+        related_name="schedule_sync_jobs",
+    )
+    schedule = models.ForeignKey(
+        OperationSchedule,
+        on_delete=models.CASCADE,
+        related_name="sync_jobs",
+    )
+    change_log = models.ForeignKey(
+        ScheduleChangeLog,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sync_jobs",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="requested_schedule_sync_jobs",
+    )
+    reason = models.TextField()
+    payload = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["location", "status"]),
+        ]
+
+    def __str__(self):
+        return f"Sync {self.location} ({self.status})"

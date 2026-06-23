@@ -5,13 +5,18 @@ from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from django.utils.decorators import method_decorator
 
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.use_cases import UpdateOperationSchedule
-from .infrastructure.asterisk.ami_client import AmiClientError
-from .infrastructure.asterisk.factories import build_schedule_publisher
+from .infrastructure.asterisk.schedule_formatter import (
+    ASTDB_SCHEDULE_FAMILY,
+    build_schedule_astdb_key,
+    build_schedule_astdb_path,
+    format_ranges_for_astdb,
+)
 from .infrastructure.django.repositories import DjangoScheduleRepository
 from .models import CallCenterLocation, ScheduleChangeLog, TenantMembership
 from .permissions import (
@@ -23,6 +28,7 @@ from .serializers import (
     CallCenterLocationSerializer,
     CurrentUserSerializer,
     LoginSerializer,
+    OperationSchedulePreviewSerializer,
     ScheduleChangeLogSerializer,
     UpdateOperationScheduleSerializer,
 )
@@ -33,6 +39,8 @@ from .serializers import (
 class LoginView(APIView):
     authentication_classes = []
     permission_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -119,6 +127,9 @@ class OperationScheduleUpdateView(APIView):
             {
                 "location": CallCenterLocationSerializer(location).data,
                 "timezone": snapshot["timezone"],
+                "sync_status": snapshot.get("sync_status"),
+                "last_sync_error": snapshot.get("last_sync_error", ""),
+                "last_synced_at": snapshot.get("last_synced_at"),
                 "days": snapshot["days"],
             },
             status=status.HTTP_200_OK,
@@ -144,7 +155,6 @@ class OperationScheduleUpdateView(APIView):
         )
         use_case = UpdateOperationSchedule(
             repository=DjangoScheduleRepository(),
-            publisher=build_schedule_publisher(),
         )
 
         try:
@@ -153,14 +163,6 @@ class OperationScheduleUpdateView(APIView):
             return Response(
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-        except (AmiClientError, OSError) as exc:
-            return Response(
-                {
-                    "detail": "El horario se guardo, pero no se pudo sincronizar con Asterisk.",
-                    "asterisk_error": str(exc),
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         return Response(result, status=status.HTTP_200_OK)
@@ -180,6 +182,55 @@ class OperationScheduleUpdateView(APIView):
                 for day in validated_data["days"]
             ],
         )
+
+
+@method_decorator(never_cache, name="dispatch")
+class OperationSchedulePreviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, location_id):
+        location = get_object_or_404(CallCenterLocation, id=location_id)
+
+        if not user_can_manage_location(request.user, location):
+            return Response(
+                {"detail": "No tienes permiso para previsualizar este horario."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = OperationSchedulePreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        return Response(
+            {
+                "location": CallCenterLocationSerializer(location).data,
+                "astdb_family": location.astdb_family,
+                "actions": [
+                    self._build_preview_action(location.astdb_family, day)
+                    for day in serializer.validated_data["days"]
+                ],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def _build_preview_action(self, astdb_family, day):
+        day_of_week = day["day_of_week"]
+        ranges = day["ranges"]
+        action = {
+            "day_of_week": day_of_week,
+            "family": ASTDB_SCHEDULE_FAMILY,
+            "key": build_schedule_astdb_key(astdb_family, day_of_week),
+            "path": build_schedule_astdb_path(astdb_family, day_of_week),
+            "ranges": ranges,
+        }
+
+        if ranges:
+            action["action"] = "DBPut"
+            action["value"] = format_ranges_for_astdb(ranges)
+        else:
+            action["action"] = "DBDel"
+            action["value"] = ""
+
+        return action
 
 
 @method_decorator(never_cache, name="dispatch")

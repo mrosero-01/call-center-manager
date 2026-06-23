@@ -88,10 +88,19 @@
         </div>
         <div class="metric">
           <svg lucideHistory [size]="18" aria-hidden="true"></svg>
-          <span>Auditoría</span>
-          <strong>{{ changeLogs().length }} cambios</strong>
+          <span>Sincronización</span>
+          <strong [class.sync-failed]="syncStatus() === 'failed'">
+            {{ syncStatusLabel() }}
+          </strong>
         </div>
       </section>
+
+      @if (lastSyncError()) {
+        <div class="sync-warning">
+          <strong>Último error AMI</strong>
+          <span>{{ lastSyncError() }}</span>
+        </div>
+      }
 
       <section class="schedule-layout">
         <div class="schedule-panel">
@@ -100,17 +109,56 @@
               <p>Horario semanal</p>
               <h2>Bloques de operación</h2>
             </div>
-            <div class="heading-actions">
-              <button type="button" class="secondary-button" (click)="applyWorkweekTemplate()">
-                Semana laboral
-              </button>
-            </div>
           </div>
 
           <div class="schedule-note">
             <strong>Días fuera de bloques: {{ unassignedDayLabels() }}</strong>
             <span>Los días no seleccionados no se modifican en Asterisk.</span>
           </div>
+
+          <div class="rule-toolbar">
+            <button type="button" class="secondary-button" (click)="applyWorkweekTemplate()">
+              Semana laboral
+            </button>
+            <button
+              type="button"
+              class="secondary-button"
+              (click)="runPreview()"
+              [disabled]="previewLoading() || !hasScheduleChanges()"
+            >
+              {{ previewLoading() ? 'Revisando' : 'Vista previa AstDB' }}
+            </button>
+            @if (scheduleRules().length > 0 && hasAvailableDays()) {
+              <button type="button" class="secondary-button" (click)="addRule()">
+                <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                <span>Horario específico</span>
+              </button>
+            }
+          </div>
+
+          @if (previewActions().length > 0) {
+            <div class="preview-panel" aria-label="Vista previa AstDB">
+              <div class="preview-head">
+                <strong>Se sincronizará en AstDB</strong>
+                <span>{{ previewActions().length }} acción(es)</span>
+              </div>
+              <div class="preview-list">
+                @for (action of previewActions(); track action.path) {
+                  <article class="preview-item">
+                    <span class="preview-action" [class.delete]="action.action === 'DBDel'">
+                      {{ action.action }}
+                    </span>
+                    <code>{{ action.path }}</code>
+                    @if (action.value) {
+                      <strong>{{ action.value }}</strong>
+                    } @else {
+                      <strong>Eliminar clave</strong>
+                    }
+                  </article>
+                }
+              </div>
+            </div>
+          }
 
           <div class="rule-list">
             @for (rule of scheduleRules(); track rule.id; let ruleIndex = $index) {
@@ -148,11 +196,27 @@
                     <div class="range-item" [class.single-range]="rule.ranges.length === 1">
                       <label>
                         Inicio
-                        <input type="time" [(ngModel)]="range.start" />
+                        <input
+                          type="text"
+                          inputmode="numeric"
+                          maxlength="5"
+                          pattern="^([01]\d|2[0-3]):[0-5]\d$"
+                          placeholder="08:00"
+                          [ngModel]="range.start"
+                          (ngModelChange)="updateRangeValue(rule.id, $index, 'start', $event)"
+                        />
                       </label>
                       <label>
                         Fin
-                        <input type="time" [(ngModel)]="range.end" />
+                        <input
+                          type="text"
+                          inputmode="numeric"
+                          maxlength="5"
+                          pattern="^([01]\d|2[0-3]):[0-5]\d$"
+                          placeholder="18:00"
+                          [ngModel]="range.end"
+                          (ngModelChange)="updateRangeValue(rule.id, $index, 'end', $event)"
+                        />
                       </label>
                       @if (rule.ranges.length > 1) {
                         <button
@@ -181,8 +245,8 @@
               </article>
             } @empty {
               <div class="empty-rules">
-                <strong>Todos los días están cerrados</strong>
-                <span>Crea un bloque para abrir días específicos.</span>
+                <strong>No hay días seleccionados</strong>
+                <span>Crea un bloque para sincronizar horarios específicos.</span>
                 <button type="button" class="primary-light-button" (click)="addRule()">
                   <svg lucidePlus [size]="16" aria-hidden="true"></svg>
                   <span>Añadir horario</span>
@@ -190,15 +254,6 @@
               </div>
             }
           </div>
-
-          @if (scheduleRules().length > 0 && hasAvailableDays()) {
-            <div class="add-specific-row">
-              <button type="button" class="secondary-button" (click)="addRule()">
-                <svg lucidePlus [size]="16" aria-hidden="true"></svg>
-                <span>Otro horario específico</span>
-              </button>
-            </div>
-          }
         </div>
 
         <aside class="audit-panel">
@@ -231,16 +286,25 @@
           <input
             type="text"
             [ngModel]="reason()"
-            (ngModelChange)="reason.set($event)"
+            (ngModelChange)="updateReason($event)"
             placeholder="Ej. Ajuste por campaña"
           />
         </label>
-        <button type="button" class="save-button" (click)="saveSchedule()" [disabled]="saving()">
+        <button
+          type="button"
+          class="save-button"
+          (click)="saveSchedule()"
+          [disabled]="saving() || !hasScheduleChanges()"
+        >
           <svg lucideSave [size]="18" aria-hidden="true"></svg>
-          <span>{{ saving() ? 'Guardando' : 'Guardar' }}</span>
+          <span>{{ saving() ? 'Guardando' : hasScheduleChanges() ? 'Guardar' : 'Sin cambios' }}</span>
         </button>
 
         <div class="save-feedback" aria-live="polite">
+          @if (!hasScheduleChanges() && !statusMessage() && !errorMessage()) {
+            <p class="neutral-message">Edita una franja para habilitar el guardado.</p>
+          }
+
           @if (statusMessage()) {
             <p class="success-message">
               <svg lucideCheckCircle2 [size]="16" aria-hidden="true"></svg>

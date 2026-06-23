@@ -21,6 +21,17 @@ class ScheduleRepository(Protocol):
     ) -> dict:
         pass
 
+    def save_schedule_change(
+        self,
+        tenant_id: int,
+        location_id: int,
+        changed_by_id: int,
+        reason: str,
+        timezone: str,
+        days: Sequence[ScheduleDayInput],
+    ) -> dict:
+        pass
+
     def save_change_log(
         self,
         tenant_id: int,

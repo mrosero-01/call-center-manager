@@ -7,8 +7,12 @@ from .models import CallCenterLocation
 
 
 class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    password = serializers.CharField(write_only=True)
+    username = serializers.CharField(max_length=150, trim_whitespace=True)
+    password = serializers.CharField(
+        max_length=128,
+        trim_whitespace=False,
+        write_only=True,
+    )
 
 
 class TenantSerializer(serializers.ModelSerializer):
@@ -96,3 +100,11 @@ class UpdateOperationScheduleSerializer(serializers.Serializer):
             seen_days.add(day_of_week)
 
         return days
+
+
+class OperationSchedulePreviewSerializer(serializers.Serializer):
+    timezone = serializers.CharField(default="America/Bogota")
+    days = ScheduleDaySerializer(many=True, allow_empty=False)
+
+    def validate_days(self, days):
+        return UpdateOperationScheduleSerializer().validate_days(days)

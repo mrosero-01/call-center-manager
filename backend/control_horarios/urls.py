@@ -6,6 +6,7 @@ from .views import (
     CsrfCookieView,
     LoginView,
     LogoutView,
+    OperationSchedulePreviewView,
     OperationScheduleUpdateView,
     ScheduleChangeLogListView,
 )
@@ -41,6 +42,11 @@ urlpatterns = [
         "locations/<int:location_id>/schedule/",
         OperationScheduleUpdateView.as_view(),
         name="operation-schedule-update",
+    ),
+    path(
+        "locations/<int:location_id>/schedule/preview/",
+        OperationSchedulePreviewView.as_view(),
+        name="operation-schedule-preview",
     ),
     path(
         "locations/<int:location_id>/schedule-changes/",

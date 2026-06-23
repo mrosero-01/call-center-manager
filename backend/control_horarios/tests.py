@@ -1,6 +1,6 @@
 from io import StringIO
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
@@ -31,6 +31,7 @@ from .models import (
     OperationSchedule,
     OperationScheduleDay,
     ScheduleChangeLog,
+    ScheduleSyncJob,
     Tenant,
     TenantMembership,
 )
@@ -113,6 +114,7 @@ class FakeScheduleRepository:
         }
         self.saved_schedule = None
         self.change_logs = []
+        self.sync_jobs = []
 
     def get_location_astdb_family(self, tenant_id, location_id):
         return "pas_aba_cla"
@@ -144,16 +146,59 @@ class FakeScheduleRepository:
         before_value,
         after_value,
     ):
-        self.change_logs.append(
+        change_log = {
+            "id": len(self.change_logs) + 1,
+            "tenant_id": tenant_id,
+            "location_id": location_id,
+            "changed_by_id": changed_by_id,
+            "reason": reason,
+            "before_value": before_value,
+            "after_value": after_value,
+        }
+        self.change_logs.append(change_log)
+
+        return SimpleNamespace(id=change_log["id"])
+
+    def save_schedule_change(
+        self,
+        tenant_id,
+        location_id,
+        changed_by_id,
+        reason,
+        timezone,
+        days,
+    ):
+        before_value = self.get_schedule_snapshot(tenant_id, location_id)
+        after_value = self.save_schedule(tenant_id, location_id, timezone, days)
+        change_log = self.save_change_log(
+            tenant_id=tenant_id,
+            location_id=location_id,
+            changed_by_id=changed_by_id,
+            reason=reason,
+            before_value=before_value,
+            after_value=after_value,
+        )
+        self.sync_jobs.append(
             {
                 "tenant_id": tenant_id,
                 "location_id": location_id,
                 "changed_by_id": changed_by_id,
                 "reason": reason,
-                "before_value": before_value,
-                "after_value": after_value,
+                "change_log_id": change_log.id,
+                "payload": {
+                    "timezone": timezone,
+                    "days": [
+                        {
+                            "day_of_week": day.day_of_week,
+                            "ranges": list(day.ranges),
+                        }
+                        for day in days
+                    ],
+                },
             }
         )
+
+        return after_value
 
 
 class FakeSchedulePublisher:
@@ -556,10 +601,9 @@ class UpdateOperationScheduleTests(SimpleTestCase):
         self.assertEqual(repository.change_logs[0]["before_value"], repository.before_value)
         self.assertEqual(repository.change_logs[0]["after_value"], result)
         self.assertEqual(
-            publisher.published_days,
+            repository.sync_jobs[0]["payload"]["days"],
             [
                 {
-                    "astdb_family": "pas_aba_cla",
                     "day_of_week": "Mon",
                     "ranges": [
                         {"start": "08:00", "end": "12:00"},
@@ -567,7 +611,6 @@ class UpdateOperationScheduleTests(SimpleTestCase):
                     ],
                 },
                 {
-                    "astdb_family": "pas_aba_cla",
                     "day_of_week": "Tue",
                     "ranges": [
                         {"start": "08:00", "end": "18:00"},
@@ -630,7 +673,7 @@ class UpdateOperationScheduleTests(SimpleTestCase):
             ],
         )
         self.assertEqual(
-            publisher.published_days[0]["ranges"],
+            repository.sync_jobs[0]["payload"]["days"][0]["ranges"],
             [
                 {"start": "08:00", "end": "12:00"},
                 {"start": "14:00", "end": "18:00"},
@@ -705,7 +748,7 @@ class UpdateOperationScheduleTests(SimpleTestCase):
         result = use_case.execute(command)
 
         self.assertEqual(result["days"]["Sun"], [])
-        self.assertEqual(publisher.published_days[0]["ranges"], [])
+        self.assertEqual(repository.sync_jobs[0]["payload"]["days"][0]["ranges"], [])
 
 
 class DjangoScheduleRepositoryTests(TestCase):
@@ -893,6 +936,144 @@ Output: /horario/callcenter_principal/Tue : 08:00-18:00
         self.assertIn("callcenter_principal", stdout.getvalue())
 
 
+class CheckAmiCommandTests(SimpleTestCase):
+    @override_settings(
+        ASTERISK_AMI_HOST="127.0.0.1",
+        ASTERISK_AMI_PORT=5038,
+        ASTERISK_AMI_USERNAME="admin",
+        ASTERISK_AMI_PASSWORD="secret",
+        ASTERISK_AMI_TIMEOUT=3,
+    )
+    def test_checks_ami_with_temporary_astdb_key(self):
+        client = MagicMock()
+        client.command.return_value = (
+            "Output: /horario/__django_check__/Ping : 00:00-00:01\r\n"
+        )
+        stdout = StringIO()
+
+        with patch(
+            "control_horarios.management.commands.check_ami.SocketAmiClient",
+            return_value=client,
+        ):
+            call_command("check_ami", stdout=stdout)
+
+        client.db_put.assert_called_once_with(
+            family="horario",
+            key="__django_check__/Ping",
+            value="00:00-00:01",
+        )
+        client.command.assert_called_once_with("database show horario")
+        client.db_del.assert_called_once_with(
+            family="horario",
+            key="__django_check__/Ping",
+        )
+        self.assertIn("AMI OK", stdout.getvalue())
+
+
+@override_settings(ASTERISK_AMI_ENABLED=False)
+class ProcessScheduleSyncJobsCommandTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PAS", code="pas")
+        self.location = CallCenterLocation.objects.create(
+            tenant=self.tenant,
+            name="ABA CLA",
+            code="aba_cla",
+            astdb_family="pas_aba_cla",
+        )
+        self.schedule = OperationSchedule.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            timezone="America/Bogota",
+        )
+        self.user = get_user_model().objects.create_user(
+            username="contratista",
+            password="test-pass",
+        )
+
+    def test_processes_pending_job_and_marks_schedule_as_synced(self):
+        job = ScheduleSyncJob.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            schedule=self.schedule,
+            requested_by=self.user,
+            reason="Cambio operativo",
+            payload={
+                "timezone": "America/Bogota",
+                "days": [
+                    {
+                        "day_of_week": "Mon",
+                        "ranges": [
+                            {"start": "08:00", "end": "12:00"},
+                        ],
+                    },
+                ],
+            },
+        )
+        publisher = FakeSchedulePublisher()
+        stdout = StringIO()
+
+        with patch(
+            "control_horarios.management.commands.process_schedule_sync_jobs.build_schedule_publisher",
+            return_value=publisher,
+        ):
+            call_command("process_schedule_sync_jobs", stdout=stdout)
+
+        job.refresh_from_db()
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(job.status, ScheduleSyncJob.Status.SYNCED)
+        self.assertEqual(job.attempts, 1)
+        self.assertEqual(self.schedule.sync_status, OperationSchedule.SyncStatus.SYNCED)
+        self.assertEqual(
+            publisher.published_days,
+            [
+                {
+                    "astdb_family": "pas_aba_cla",
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        )
+        self.assertIn("sincronizado", stdout.getvalue())
+
+    def test_marks_job_and_schedule_failed_when_publisher_fails(self):
+        job = ScheduleSyncJob.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            schedule=self.schedule,
+            requested_by=self.user,
+            reason="Cambio operativo",
+            payload={
+                "timezone": "America/Bogota",
+                "days": [
+                    {
+                        "day_of_week": "Mon",
+                        "ranges": [
+                            {"start": "08:00", "end": "12:00"},
+                        ],
+                    },
+                ],
+            },
+        )
+        stdout = StringIO()
+
+        with patch(
+            "control_horarios.management.commands.process_schedule_sync_jobs.build_schedule_publisher",
+            return_value=FailingSchedulePublisher(),
+        ):
+            call_command("process_schedule_sync_jobs", stdout=stdout)
+
+        job.refresh_from_db()
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(job.status, ScheduleSyncJob.Status.FAILED)
+        self.assertEqual(job.attempts, 1)
+        self.assertEqual(self.schedule.sync_status, OperationSchedule.SyncStatus.FAILED)
+        self.assertIn("AMI no disponible", job.last_error)
+
+
 @override_settings(ASTERISK_AMI_ENABLED=False)
 class OperationScheduleApiTests(APITestCase):
     def setUp(self):
@@ -919,6 +1100,10 @@ class OperationScheduleApiTests(APITestCase):
         self.locations_url = reverse("callcenter-location-list")
         self.change_logs_url = reverse(
             "schedule-change-log-list",
+            kwargs={"location_id": self.location.id},
+        )
+        self.preview_url = reverse(
+            "operation-schedule-preview",
             kwargs={"location_id": self.location.id},
         )
 
@@ -1094,7 +1279,7 @@ class OperationScheduleApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["days"]["Sun"], [])
 
-    def test_api_returns_502_when_asterisk_sync_fails(self):
+    def test_api_enqueues_sync_job_instead_of_calling_asterisk_inline(self):
         self.client.force_authenticate(user=self.user)
         payload = {
             "timezone": "America/Bogota",
@@ -1109,15 +1294,12 @@ class OperationScheduleApiTests(APITestCase):
             ],
         }
 
-        with patch(
-            "control_horarios.views.build_schedule_publisher",
-            return_value=FailingSchedulePublisher(),
-        ):
-            response = self.client.put(self.url, payload, format="json")
+        response = self.client.put(self.url, payload, format="json")
 
-        self.assertEqual(response.status_code, 502)
-        self.assertIn("asterisk_error", response.data)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sync_status"], "pending")
         self.assertEqual(OperationSchedule.objects.count(), 1)
+        self.assertEqual(ScheduleSyncJob.objects.count(), 1)
 
     def test_api_keeps_omitted_existing_days(self):
         schedule = OperationSchedule.objects.create(
@@ -1164,7 +1346,7 @@ class OperationScheduleApiTests(APITestCase):
             ).exists()
         )
 
-    def test_api_publishes_only_days_present_in_payload(self):
+    def test_api_enqueues_only_days_present_in_payload(self):
         schedule = OperationSchedule.objects.create(
             tenant=self.tenant,
             location=self.location,
@@ -1177,7 +1359,6 @@ class OperationScheduleApiTests(APITestCase):
                 {"start": "08:00", "end": "18:00"},
             ],
         )
-        publisher = FakeSchedulePublisher()
         self.client.force_authenticate(user=self.user)
         payload = {
             "timezone": "America/Bogota",
@@ -1192,18 +1373,13 @@ class OperationScheduleApiTests(APITestCase):
             ],
         }
 
-        with patch(
-            "control_horarios.views.build_schedule_publisher",
-            return_value=publisher,
-        ):
-            response = self.client.put(self.url, payload, format="json")
+        response = self.client.put(self.url, payload, format="json")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            publisher.published_days,
+            ScheduleSyncJob.objects.get().payload["days"],
             [
                 {
-                    "astdb_family": "pas_aba_cla",
                     "day_of_week": "Mon",
                     "ranges": [
                         {"start": "08:00", "end": "20:00"},
@@ -1211,6 +1387,80 @@ class OperationScheduleApiTests(APITestCase):
                 },
             ],
         )
+
+    def test_member_can_preview_astdb_actions_without_saving(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "14:00", "end": "18:00"},
+                    ],
+                },
+                {
+                    "day_of_week": "Sun",
+                    "ranges": [],
+                },
+            ],
+        }
+
+        response = self.client.post(self.preview_url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["astdb_family"], "pas_aba_cla")
+        self.assertEqual(
+            response.data["actions"],
+            [
+                {
+                    "day_of_week": "Mon",
+                    "family": "horario",
+                    "key": "pas_aba_cla/Mon",
+                    "path": "/horario/pas_aba_cla/Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "14:00", "end": "18:00"},
+                    ],
+                    "action": "DBPut",
+                    "value": "08:00-12:00|14:00-18:00",
+                },
+                {
+                    "day_of_week": "Sun",
+                    "family": "horario",
+                    "key": "pas_aba_cla/Sun",
+                    "path": "/horario/pas_aba_cla/Sun",
+                    "ranges": [],
+                    "action": "DBDel",
+                    "value": "",
+                },
+            ],
+        )
+        self.assertEqual(OperationSchedule.objects.count(), 0)
+        self.assertEqual(ScheduleChangeLog.objects.count(), 0)
+
+    def test_user_without_membership_cannot_preview_schedule(self):
+        other_user = get_user_model().objects.create_user(
+            username="preview-externo",
+            password="test-pass",
+        )
+        self.client.force_authenticate(user=other_user)
+        payload = {
+            "timezone": "America/Bogota",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.post(self.preview_url, payload, format="json")
+
+        self.assertEqual(response.status_code, 403)
 
     def test_user_without_membership_cannot_update_schedule(self):
         other_user = get_user_model().objects.create_user(

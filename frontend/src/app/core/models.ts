@@ -39,6 +39,9 @@ export interface ScheduleDayPayload {
 export interface ScheduleSnapshot {
   location?: CallCenterLocation;
   timezone: string | null;
+  sync_status?: 'pending' | 'synced' | 'failed';
+  last_sync_error?: string;
+  last_synced_at?: string | null;
   days: Partial<Record<Weekday, TimeRange[]>>;
 }
 
@@ -46,6 +49,27 @@ export interface ScheduleUpdatePayload {
   timezone: string;
   reason: string;
   days: ScheduleDayPayload[];
+}
+
+export interface SchedulePreviewPayload {
+  timezone: string;
+  days: ScheduleDayPayload[];
+}
+
+export interface SchedulePreviewAction {
+  action: 'DBPut' | 'DBDel';
+  day_of_week: Weekday;
+  family: string;
+  key: string;
+  path: string;
+  value: string;
+  ranges: TimeRange[];
+}
+
+export interface SchedulePreview {
+  location: CallCenterLocation;
+  astdb_family: string;
+  actions: SchedulePreviewAction[];
 }
 
 export interface ScheduleChangeLog {

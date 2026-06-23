@@ -5,6 +5,7 @@ from .models import (
     OperationSchedule,
     OperationScheduleDay,
     ScheduleChangeLog,
+    ScheduleSyncJob,
     Tenant,
     TenantMembership,
 )
@@ -37,9 +38,10 @@ class OperationScheduleDayInline(admin.TabularInline):
 
 @admin.register(OperationSchedule)
 class OperationScheduleAdmin(admin.ModelAdmin):
-    list_display = ("id", "location", "tenant", "timezone", "updated_at")
-    list_filter = ("tenant", "timezone")
+    list_display = ("id", "location", "tenant", "timezone", "sync_status", "updated_at")
+    list_filter = ("tenant", "timezone", "sync_status")
     search_fields = ("location__name", "location__code", "location__astdb_family")
+    readonly_fields = ("sync_status", "last_sync_error", "last_synced_at")
     inlines = [OperationScheduleDayInline]
 
 
@@ -63,4 +65,35 @@ class ScheduleChangeLogAdmin(admin.ModelAdmin):
         "before_value",
         "after_value",
         "created_at",
+    )
+
+
+@admin.register(ScheduleSyncJob)
+class ScheduleSyncJobAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "location",
+        "tenant",
+        "status",
+        "attempts",
+        "requested_by",
+        "created_at",
+        "synced_at",
+    )
+    list_filter = ("tenant", "status", "created_at")
+    search_fields = ("location__name", "location__astdb_family", "reason", "last_error")
+    readonly_fields = (
+        "tenant",
+        "location",
+        "schedule",
+        "change_log",
+        "requested_by",
+        "reason",
+        "payload",
+        "status",
+        "attempts",
+        "last_error",
+        "synced_at",
+        "created_at",
+        "updated_at",
     )

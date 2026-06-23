@@ -5,6 +5,8 @@ import { Observable } from 'rxjs';
 import {
   CallCenterLocation,
   ScheduleChangeLog,
+  SchedulePreview,
+  SchedulePreviewPayload,
   ScheduleSnapshot,
   ScheduleUpdatePayload
 } from './models';
@@ -27,6 +29,12 @@ export class ScheduleApiService {
 
   updateSchedule(locationId: number, payload: ScheduleUpdatePayload): Observable<ScheduleSnapshot> {
     return this.http.put<ScheduleSnapshot>(`/api/locations/${locationId}/schedule/`, payload, {
+      withCredentials: true
+    });
+  }
+
+  previewSchedule(locationId: number, payload: SchedulePreviewPayload): Observable<SchedulePreview> {
+    return this.http.post<SchedulePreview>(`/api/locations/${locationId}/schedule/preview/`, payload, {
       withCredentials: true
     });
   }
