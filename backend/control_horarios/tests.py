@@ -770,6 +770,10 @@ class OperationScheduleApiTests(APITestCase):
             kwargs={"location_id": self.location.id},
         )
         self.locations_url = reverse("callcenter-location-list")
+        self.change_logs_url = reverse(
+            "schedule-change-log-list",
+            kwargs={"location_id": self.location.id},
+        )
 
     def test_member_can_update_operation_schedule(self):
         self.client.force_authenticate(user=self.user)
@@ -828,6 +832,25 @@ class OperationScheduleApiTests(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["id"], self.location.id)
         self.assertEqual(response.data[0]["astdb_family"], "pas_aba_cla")
+
+    def test_superuser_lists_all_locations(self):
+        other_tenant = Tenant.objects.create(name="OTRO", code="otro")
+        CallCenterLocation.objects.create(
+            tenant=other_tenant,
+            name="Otro callcenter",
+            code="otro_callcenter",
+            astdb_family="otro_callcenter",
+        )
+        superuser = get_user_model().objects.create_superuser(
+            username="owner",
+            password="test-pass",
+        )
+        self.client.force_authenticate(user=superuser)
+
+        response = self.client.get(self.locations_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
 
     def test_gets_current_operation_schedule(self):
         schedule = OperationSchedule.objects.create(
@@ -1068,3 +1091,88 @@ class OperationScheduleApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("reason", response.data)
+
+    def test_lists_schedule_change_logs_for_allowed_location(self):
+        ScheduleChangeLog.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            changed_by=self.user,
+            reason="Cambio de prueba",
+            before_value={"days": {}},
+            after_value={"days": {"Mon": []}},
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self.change_logs_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["changed_by"], self.user.username)
+        self.assertEqual(response.data[0]["reason"], "Cambio de prueba")
+
+    def test_user_without_membership_cannot_view_schedule_change_logs(self):
+        other_user = get_user_model().objects.create_user(
+            username="auditor-externo",
+            password="test-pass",
+        )
+        self.client.force_authenticate(user=other_user)
+
+        response = self.client.get(self.change_logs_url)
+
+        self.assertEqual(response.status_code, 403)
+
+
+class SessionAuthApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PAS", code="pas")
+        self.user = get_user_model().objects.create_user(
+            username="miguel",
+            password="test-pass",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant,
+            user=self.user,
+            role=TenantMembership.Role.ADMIN,
+        )
+
+    def test_login_creates_session_and_me_returns_user(self):
+        login_response = self.client.post(
+            reverse("auth-login"),
+            {
+                "username": "miguel",
+                "password": "test-pass",
+            },
+            format="json",
+        )
+
+        self.assertEqual(login_response.status_code, 200)
+        self.assertEqual(login_response.data["username"], "miguel")
+        self.assertFalse(login_response.data["is_superuser"])
+        self.assertEqual(login_response.data["memberships"][0]["role"], "admin")
+
+        me_response = self.client.get(reverse("current-user"))
+
+        self.assertEqual(me_response.status_code, 200)
+        self.assertEqual(me_response.data["username"], "miguel")
+        self.assertEqual(me_response.data["memberships"][0]["tenant"]["code"], "pas")
+
+    def test_login_rejects_invalid_credentials(self):
+        response = self.client.post(
+            reverse("auth-login"),
+            {
+                "username": "miguel",
+                "password": "wrong-pass",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_logout_clears_session(self):
+        self.client.login(username="miguel", password="test-pass")
+
+        logout_response = self.client.post(reverse("auth-logout"))
+        me_response = self.client.get(reverse("current-user"))
+
+        self.assertEqual(logout_response.status_code, 204)
+        self.assertEqual(me_response.status_code, 403)

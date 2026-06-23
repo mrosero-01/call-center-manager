@@ -1,8 +1,35 @@
 from rest_framework import serializers
 
 from .application.schedule_rules import normalize_ranges
+from .models import ScheduleChangeLog, Tenant, TenantMembership
 from .models import OperationScheduleDay
 from .models import CallCenterLocation
+
+
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+
+class TenantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tenant
+        fields = ("id", "name", "code")
+
+
+class TenantMembershipSerializer(serializers.ModelSerializer):
+    tenant = TenantSerializer()
+
+    class Meta:
+        model = TenantMembership
+        fields = ("tenant", "role")
+
+
+class CurrentUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+    is_superuser = serializers.BooleanField()
+    memberships = TenantMembershipSerializer(many=True)
 
 
 class CallCenterLocationSerializer(serializers.ModelSerializer):
@@ -11,6 +38,21 @@ class CallCenterLocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = CallCenterLocation
         fields = ("id", "name", "code", "astdb_family", "tenant")
+
+
+class ScheduleChangeLogSerializer(serializers.ModelSerializer):
+    changed_by = serializers.CharField(source="changed_by.username", allow_null=True)
+
+    class Meta:
+        model = ScheduleChangeLog
+        fields = (
+            "id",
+            "changed_by",
+            "reason",
+            "before_value",
+            "after_value",
+            "created_at",
+        )
 
 
 class ScheduleRangeSerializer(serializers.Serializer):
