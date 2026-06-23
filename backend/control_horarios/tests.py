@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.core.management import call_command
 from django.urls import reverse
 from django.test import override_settings
@@ -38,6 +39,8 @@ from .models import (
 class FakeAmiClient:
     def __init__(self):
         self.db_put_calls = []
+        self.db_del_calls = []
+        self.database_actions = []
 
     def db_put(self, family, key, value):
         self.db_put_calls.append(
@@ -47,6 +50,17 @@ class FakeAmiClient:
                 "value": value,
             }
         )
+
+    def db_del(self, family, key):
+        self.db_del_calls.append(
+            {
+                "family": family,
+                "key": key,
+            }
+        )
+
+    def run_database_actions(self, actions):
+        self.database_actions.extend(actions)
 
 
 class FakeSocket:
@@ -146,6 +160,14 @@ class FakeSchedulePublisher:
     def __init__(self):
         self.published_days = []
 
+    def publish_days(self, astdb_family, days):
+        for day in days:
+            self.publish_day(
+                astdb_family=astdb_family,
+                day_of_week=day.day_of_week,
+                ranges=day.ranges,
+            )
+
     def publish_day(self, astdb_family, day_of_week, ranges):
         self.published_days.append(
             {
@@ -157,6 +179,9 @@ class FakeSchedulePublisher:
 
 
 class FailingSchedulePublisher:
+    def publish_days(self, astdb_family, days):
+        raise AmiClientError("AMI no disponible")
+
     def publish_day(self, astdb_family, day_of_week, ranges):
         raise AmiClientError("AMI no disponible")
 
@@ -252,6 +277,50 @@ class AmiSchedulePublisherTests(SimpleTestCase):
             ],
         )
 
+    def test_publishes_closed_day_to_astdb_using_ami_db_del(self):
+        ami_client = FakeAmiClient()
+        publisher = AmiSchedulePublisher(ami_client)
+
+        publisher.publish_day(
+            astdb_family="pas_aba_cla",
+            day_of_week="Sun",
+            ranges=[],
+        )
+
+        self.assertEqual(
+            ami_client.db_del_calls,
+            [
+                {
+                    "family": "horario",
+                    "key": "pas_aba_cla/Sun",
+                }
+            ],
+        )
+
+    def test_publishes_multiple_days_as_one_ami_batch(self):
+        ami_client = FakeAmiClient()
+        publisher = AmiSchedulePublisher(ami_client)
+
+        publisher.publish_days(
+            astdb_family="pas_aba_cla",
+            days=[
+                SimpleNamespace(
+                    day_of_week="Mon",
+                    ranges=[{"start": "08:00", "end": "12:00"}],
+                ),
+                SimpleNamespace(
+                    day_of_week="Sun",
+                    ranges=[],
+                ),
+            ],
+        )
+
+        self.assertEqual(len(ami_client.database_actions), 2)
+        self.assertEqual(ami_client.database_actions[0]["fields"]["Action"], "DBPut")
+        self.assertEqual(ami_client.database_actions[0]["fields"]["Key"], "pas_aba_cla/Mon")
+        self.assertEqual(ami_client.database_actions[1]["fields"]["Action"], "DBDel")
+        self.assertEqual(ami_client.database_actions[1]["fields"]["Key"], "pas_aba_cla/Sun")
+
 
 class SocketAmiClientTests(SimpleTestCase):
     def test_accepts_single_line_ami_banner_before_login(self):
@@ -322,6 +391,83 @@ class SocketAmiClientTests(SimpleTestCase):
         self.assertIn("Key: pas_aba_cla/Mon\r\n", sent_payload)
         self.assertIn("Val: 08:00-12:00|14:00-18:00\r\n", sent_payload)
         self.assertIn("Action: Logoff\r\n", sent_payload)
+
+    def test_runs_multiple_database_actions_with_single_login(self):
+        fake_socket = FakeSocket(
+            responses=[
+                "Asterisk Call Manager/5.0\r\n\r\n",
+                "Response: Success\r\nMessage: Authentication accepted\r\n\r\n",
+                "Response: Success\r\nMessage: Updated database successfully\r\n\r\n",
+                "Response: Success\r\nMessage: Database entry removed\r\n\r\n",
+                "Response: Goodbye\r\n\r\n",
+            ]
+        )
+        client = SocketAmiClient(
+            host="127.0.0.1",
+            port=5038,
+            username="admin",
+            password="secret",
+        )
+
+        with patch(
+            "control_horarios.infrastructure.asterisk.ami_client.socket.create_connection",
+            return_value=fake_socket,
+        ) as create_connection:
+            client.run_database_actions(
+                [
+                    {
+                        "fields": {
+                            "Action": "DBPut",
+                            "Family": "horario",
+                            "Key": "pas_aba_cla/Mon",
+                            "Val": "08:00-12:00",
+                        },
+                        "error_message": "DBPut AMI fallido",
+                    },
+                    {
+                        "fields": {
+                            "Action": "DBDel",
+                            "Family": "horario",
+                            "Key": "pas_aba_cla/Sun",
+                        },
+                        "error_message": "DBDel AMI fallido",
+                        "allow_missing": True,
+                    },
+                ]
+            )
+
+        create_connection.assert_called_once_with(("127.0.0.1", 5038), timeout=5)
+        sent_payload = "".join(fake_socket.sent_payloads)
+
+        self.assertEqual(sent_payload.count("Action: Login\r\n"), 1)
+        self.assertEqual(sent_payload.count("Action: Logoff\r\n"), 1)
+        self.assertIn("Action: DBPut\r\n", sent_payload)
+        self.assertIn("Action: DBDel\r\n", sent_payload)
+
+    def test_dbdel_ignores_missing_database_entry(self):
+        fake_socket = FakeSocket(
+            responses=[
+                "Asterisk Call Manager/5.0\r\n\r\n",
+                "Response: Success\r\nMessage: Authentication accepted\r\n\r\n",
+                "Response: Error\r\nMessage: Database entry not found\r\n\r\n",
+                "Response: Goodbye\r\n\r\n",
+            ]
+        )
+        client = SocketAmiClient(
+            host="127.0.0.1",
+            port=5038,
+            username="admin",
+            password="secret",
+        )
+
+        with patch(
+            "control_horarios.infrastructure.asterisk.ami_client.socket.create_connection",
+            return_value=fake_socket,
+        ):
+            client.db_del(
+                family="horario",
+                key="pas_aba_cla/Sun",
+            )
 
     def test_sends_readonly_cli_command_action(self):
         fake_socket = FakeSocket(
@@ -747,6 +893,7 @@ Output: /horario/callcenter_principal/Tue : 08:00-18:00
         self.assertIn("callcenter_principal", stdout.getvalue())
 
 
+@override_settings(ASTERISK_AMI_ENABLED=False)
 class OperationScheduleApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="PAS", code="pas")
@@ -1017,6 +1164,54 @@ class OperationScheduleApiTests(APITestCase):
             ).exists()
         )
 
+    def test_api_publishes_only_days_present_in_payload(self):
+        schedule = OperationSchedule.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            timezone="America/Bogota",
+        )
+        OperationScheduleDay.objects.create(
+            schedule=schedule,
+            day_of_week="Tue",
+            ranges=[
+                {"start": "08:00", "end": "18:00"},
+            ],
+        )
+        publisher = FakeSchedulePublisher()
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Cambio solo de lunes",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "20:00"},
+                    ],
+                },
+            ],
+        }
+
+        with patch(
+            "control_horarios.views.build_schedule_publisher",
+            return_value=publisher,
+        ):
+            response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            publisher.published_days,
+            [
+                {
+                    "astdb_family": "pas_aba_cla",
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "20:00"},
+                    ],
+                },
+            ],
+        )
+
     def test_user_without_membership_cannot_update_schedule(self):
         other_user = get_user_model().objects.create_user(
             username="externo",
@@ -1176,3 +1371,23 @@ class SessionAuthApiTests(APITestCase):
 
         self.assertEqual(logout_response.status_code, 204)
         self.assertEqual(me_response.status_code, 403)
+
+    def test_private_session_response_is_not_cacheable(self):
+        self.client.login(username="miguel", password="test-pass")
+
+        response = self.client.get(reverse("current-user"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+
+    def test_logout_response_is_not_cacheable(self):
+        self.client.login(username="miguel", password="test-pass")
+
+        response = self.client.post(reverse("auth-logout"))
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+
+    def test_angular_dev_origins_are_trusted_for_csrf(self):
+        self.assertIn("http://localhost:4200", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertIn("http://127.0.0.1:4200", settings.CSRF_TRUSTED_ORIGINS)

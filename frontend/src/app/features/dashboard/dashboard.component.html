@@ -1,0 +1,261 @@
+<main class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="brand">
+        <span class="brand-mark">*</span>
+        <div>
+          <strong>Siptic</strong>
+          <small>Ingeniería y servicios IP</small>
+        </div>
+      </div>
+
+      <div class="session-user">
+        <svg lucideUserRound [size]="18" aria-hidden="true"></svg>
+        <div>
+          <strong>{{ user()?.username }}</strong>
+          <span>{{ roleLabel() }}</span>
+        </div>
+      </div>
+
+      <label class="context-switcher">
+        <span>Call center activo</span>
+        <select [ngModel]="selectedLocationId()" (ngModelChange)="selectLocationById($event)">
+          @for (location of locations(); track location.id) {
+            <option [ngValue]="location.id">{{ location.name }}</option>
+          }
+        </select>
+      </label>
+    </div>
+
+    <div class="sidebar-body">
+      <nav class="module-nav" aria-label="Módulos">
+        <button type="button">
+          <svg lucideLayoutDashboard [size]="18" aria-hidden="true"></svg>
+          <span>Dashboard</span>
+        </button>
+        <button type="button" class="active">
+          <svg lucideCalendarClock [size]="18" aria-hidden="true"></svg>
+          <span>Horarios</span>
+        </button>
+        <button type="button">
+          <svg lucideUsersRound [size]="18" aria-hidden="true"></svg>
+          <span>Agentes</span>
+        </button>
+        <button type="button">
+          <svg lucideMegaphone [size]="18" aria-hidden="true"></svg>
+          <span>Campañas</span>
+        </button>
+      </nav>
+    </div>
+
+    <button type="button" class="logout-button" (click)="logout()">
+      <svg lucideLogOut [size]="17" aria-hidden="true"></svg>
+      <span>Cerrar sesión</span>
+    </button>
+  </aside>
+
+  <section class="workspace">
+    <header class="topbar">
+      <div>
+        <p>Horarios / {{ selectedLocation()?.tenant || 'Tenant' }}</p>
+        <h1>{{ selectedLocation()?.name || 'Control de horarios' }}</h1>
+      </div>
+      <button type="button" class="icon-button" (click)="refreshSelected()" title="Actualizar">
+        <svg lucideRefreshCcw [size]="18" aria-hidden="true"></svg>
+      </button>
+    </header>
+
+    @if (loading()) {
+      <div class="state-band">Cargando sesión</div>
+    } @else if (locations().length === 0) {
+      <div class="state-band">No hay call centers disponibles</div>
+    } @else {
+      <section class="status-grid" aria-label="Estado">
+        <div class="metric">
+          <svg lucideWifi [size]="18" aria-hidden="true"></svg>
+          <span>AstDB</span>
+          <strong>{{ selectedLocation()?.astdb_family }}</strong>
+        </div>
+        <div class="metric">
+          <svg lucideClock3 [size]="18" aria-hidden="true"></svg>
+          <span>Días abiertos</span>
+          <strong>{{ openDaysCount() }} de 7</strong>
+        </div>
+        <div class="metric">
+          <svg lucideCalendarClock [size]="18" aria-hidden="true"></svg>
+          <span>Bloques horarios</span>
+          <strong>{{ activeRulesCount() }}</strong>
+        </div>
+        <div class="metric">
+          <svg lucideHistory [size]="18" aria-hidden="true"></svg>
+          <span>Auditoría</span>
+          <strong>{{ changeLogs().length }} cambios</strong>
+        </div>
+      </section>
+
+      <section class="schedule-layout">
+        <div class="schedule-panel">
+          <div class="section-heading">
+            <div>
+              <p>Horario semanal</p>
+              <h2>Bloques de operación</h2>
+            </div>
+            <div class="heading-actions">
+              <button type="button" class="secondary-button" (click)="applyWorkweekTemplate()">
+                Semana laboral
+              </button>
+            </div>
+          </div>
+
+          <div class="schedule-note">
+            <strong>Días fuera de bloques: {{ unassignedDayLabels() }}</strong>
+            <span>Los días no seleccionados no se modifican en Asterisk.</span>
+          </div>
+
+          <div class="rule-list">
+            @for (rule of scheduleRules(); track rule.id; let ruleIndex = $index) {
+              <article class="rule-card">
+                <header class="rule-header">
+                  <div>
+                    <p>Bloque {{ ruleIndex + 1 }}</p>
+                    <h3>{{ formatRuleDays(rule) }}</h3>
+                  </div>
+                  <button
+                    type="button"
+                    class="icon-button danger"
+                    (click)="removeRule(rule.id)"
+                    title="Eliminar regla"
+                  >
+                    <svg lucideTrash2 [size]="16" aria-hidden="true"></svg>
+                  </button>
+                </header>
+
+                <div class="day-picker" aria-label="Días de la regla">
+                  @for (weekday of weekdays; track weekday.day) {
+                    <label [class.selected]="isDaySelected(rule, weekday.day)">
+                      <input
+                        type="checkbox"
+                        [checked]="isDaySelected(rule, weekday.day)"
+                        (change)="toggleRuleDay(rule, weekday.day, $any($event.target).checked)"
+                      />
+                      <span>{{ weekday.shortLabel }}</span>
+                    </label>
+                  }
+                </div>
+
+                <div class="range-list">
+                  @for (range of rule.ranges; track $index) {
+                    <div class="range-item" [class.single-range]="rule.ranges.length === 1">
+                      <label>
+                        Inicio
+                        <input type="time" [(ngModel)]="range.start" />
+                      </label>
+                      <label>
+                        Fin
+                        <input type="time" [(ngModel)]="range.end" />
+                      </label>
+                      @if (rule.ranges.length > 1) {
+                        <button
+                          type="button"
+                          class="icon-button danger"
+                          (click)="removeRange(rule, $index)"
+                          title="Quitar franja"
+                        >
+                          <svg lucideTrash2 [size]="16" aria-hidden="true"></svg>
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+
+                <footer class="rule-actions">
+                  <button type="button" class="text-button" (click)="copyRuleToWorkdays(rule)">
+                    <svg lucideCopy [size]="15" aria-hidden="true"></svg>
+                    <span>Copiar a hábiles</span>
+                  </button>
+                  <button type="button" class="add-range" (click)="addRange(rule)">
+                    <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                    <span>Franja</span>
+                  </button>
+                </footer>
+              </article>
+            } @empty {
+              <div class="empty-rules">
+                <strong>Todos los días están cerrados</strong>
+                <span>Crea un bloque para abrir días específicos.</span>
+                <button type="button" class="primary-light-button" (click)="addRule()">
+                  <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                  <span>Añadir horario</span>
+                </button>
+              </div>
+            }
+          </div>
+
+          @if (scheduleRules().length > 0 && hasAvailableDays()) {
+            <div class="add-specific-row">
+              <button type="button" class="secondary-button" (click)="addRule()">
+                <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                <span>Otro horario específico</span>
+              </button>
+            </div>
+          }
+        </div>
+
+        <aside class="audit-panel">
+          <div class="section-heading compact">
+            <div>
+              <p>Auditoría</p>
+              <h2>Últimos cambios</h2>
+            </div>
+          </div>
+
+          <div class="audit-list">
+            @for (log of changeLogs(); track log.id) {
+              <article class="audit-item">
+                <div>
+                  <strong>{{ log.reason }}</strong>
+                  <span>{{ log.changed_by || 'Sistema' }}</span>
+                </div>
+                <time>{{ log.created_at | date: 'short' }}</time>
+              </article>
+            } @empty {
+              <p class="muted">Sin cambios registrados</p>
+            }
+          </div>
+        </aside>
+      </section>
+
+      <div class="save-dock">
+        <label>
+          Motivo del cambio obligatorio
+          <input
+            type="text"
+            [ngModel]="reason()"
+            (ngModelChange)="reason.set($event)"
+            placeholder="Ej. Ajuste por campaña"
+          />
+        </label>
+        <button type="button" class="save-button" (click)="saveSchedule()" [disabled]="saving()">
+          <svg lucideSave [size]="18" aria-hidden="true"></svg>
+          <span>{{ saving() ? 'Guardando' : 'Guardar' }}</span>
+        </button>
+
+        <div class="save-feedback" aria-live="polite">
+          @if (statusMessage()) {
+            <p class="success-message">
+              <svg lucideCheckCircle2 [size]="16" aria-hidden="true"></svg>
+              {{ statusMessage() }}
+            </p>
+          }
+
+          @if (errorMessage()) {
+            <p class="error-message">
+              <svg lucideAlertCircle [size]="16" aria-hidden="true"></svg>
+              {{ errorMessage() }}
+            </p>
+          }
+        </div>
+      </div>
+    }
+  </section>
+</main>

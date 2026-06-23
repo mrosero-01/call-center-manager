@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     CallCenterLocationListView,
     CurrentUserView,
+    CsrfCookieView,
     LoginView,
     LogoutView,
     OperationScheduleUpdateView,
@@ -11,6 +12,11 @@ from .views import (
 
 
 urlpatterns = [
+    path(
+        "auth/csrf/",
+        CsrfCookieView.as_view(),
+        name="auth-csrf",
+    ),
     path(
         "auth/login/",
         LoginView.as_view(),

@@ -1,9 +1,12 @@
 from django.contrib.auth import authenticate, login, logout
 from django.shortcuts import get_object_or_404
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils.decorators import method_decorator
 
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.use_cases import UpdateOperationSchedule
@@ -25,6 +28,8 @@ from .serializers import (
 )
 
 
+@method_decorator(csrf_protect, name="dispatch")
+@method_decorator(never_cache, name="dispatch")
 class LoginView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -49,6 +54,18 @@ class LoginView(APIView):
         return Response(_serialize_current_user(user), status=status.HTTP_200_OK)
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+@method_decorator(never_cache, name="dispatch")
+class CsrfCookieView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        return Response({"detail": "CSRF cookie set."}, status=status.HTTP_200_OK)
+
+
+@method_decorator(csrf_protect, name="dispatch")
+@method_decorator(never_cache, name="dispatch")
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -58,6 +75,7 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@method_decorator(never_cache, name="dispatch")
 class CurrentUserView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -68,6 +86,7 @@ class CurrentUserView(APIView):
         )
 
 
+@method_decorator(never_cache, name="dispatch")
 class CallCenterLocationListView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -78,6 +97,7 @@ class CallCenterLocationListView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+@method_decorator(never_cache, name="dispatch")
 class OperationScheduleUpdateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -162,6 +182,7 @@ class OperationScheduleUpdateView(APIView):
         )
 
 
+@method_decorator(never_cache, name="dispatch")
 class ScheduleChangeLogListView(APIView):
     permission_classes = [IsAuthenticated]
 

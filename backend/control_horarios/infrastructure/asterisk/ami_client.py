@@ -26,6 +26,20 @@ class SocketAmiClient:
             error_message="DBPut AMI fallido",
         )
 
+    def db_del(self, family, key):
+        self._run_logged_action(
+            action_fields={
+                "Action": "DBDel",
+                "Family": family,
+                "Key": key,
+            },
+            error_message="DBDel AMI fallido",
+            allow_missing=True,
+        )
+
+    def run_database_actions(self, actions):
+        self._run_logged_actions(actions)
+
     def command(self, command):
         return self._run_logged_action(
             action_fields={
@@ -35,7 +49,22 @@ class SocketAmiClient:
             error_message="Comando AMI fallido",
         )
 
-    def _run_logged_action(self, action_fields, error_message):
+    def _run_logged_action(self, action_fields, error_message, allow_missing=False):
+        responses = self._run_logged_actions(
+            [
+                {
+                    "fields": action_fields,
+                    "error_message": error_message,
+                    "allow_missing": allow_missing,
+                }
+            ]
+        )
+
+        return responses[0]
+
+    def _run_logged_actions(self, actions):
+        responses = []
+
         with socket.create_connection(
             (self.host, self.port),
             timeout=self.timeout,
@@ -53,14 +82,20 @@ class SocketAmiClient:
             )
             self._ensure_success(self._read_response(connection), "Login AMI fallido")
 
-            self._send_action(connection, action_fields)
-            response = self._read_response(connection)
-            self._ensure_success(response, error_message)
+            for action in actions:
+                self._send_action(connection, action["fields"])
+                response = self._read_response(connection)
+                self._ensure_success(
+                    response,
+                    action["error_message"],
+                    allow_missing=action.get("allow_missing", False),
+                )
+                responses.append(response)
 
             self._send_action(connection, {"Action": "Logoff"})
             self._read_response(connection)
 
-            return response
+            return responses
 
     def _send_action(self, connection, fields):
         payload = "".join(
@@ -90,6 +125,9 @@ class SocketAmiClient:
 
         return b"".join(chunks).decode("utf-8", errors="replace")
 
-    def _ensure_success(self, response, fallback_message):
+    def _ensure_success(self, response, fallback_message, allow_missing=False):
         if "Response: Success" not in response:
+            if allow_missing and "not found" in response.lower():
+                return
+
             raise AmiClientError(f"{fallback_message}: {response.strip()}")

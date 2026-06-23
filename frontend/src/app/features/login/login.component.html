@@ -1,0 +1,62 @@
+<main class="login-page">
+  <section class="brand-pane" aria-label="Siptic">
+    <div class="brand-copy">
+      <div class="brand-lockup">
+        <span class="brand-mark">*</span>
+        <div>
+          <strong>Siptic</strong>
+          <small>Ingeniería y servicios IP</small>
+        </div>
+      </div>
+
+      <p>Control de horarios</p>
+      <h1>Administra jornadas de atención por call center.</h1>
+      <span>Cambios trazables, configuración por cliente y sincronización con Asterisk.</span>
+    </div>
+
+    <figure class="brand-visual">
+      <img src="assets/siptic/voz.webp" alt="" />
+      <figcaption>
+        <strong>Operación clara</strong>
+        <span>Franjas mañana/tarde y auditoría de cambios.</span>
+      </figcaption>
+    </figure>
+  </section>
+
+  <section class="login-pane">
+    <div class="login-box">
+      <div class="login-title">
+        <span class="mark">
+          <svg lucideShieldCheck [size]="22" aria-hidden="true"></svg>
+        </span>
+        <div>
+          <p>Panel seguro</p>
+          <h1>Iniciar sesión</h1>
+        </div>
+      </div>
+
+      <form [formGroup]="form" (ngSubmit)="submit()" class="login-form">
+        <p class="form-intro">Usa tu cuenta asignada para acceder a la configuración permitida.</p>
+
+        <label>
+          Usuario
+          <input type="text" formControlName="username" autocomplete="username" />
+        </label>
+
+        <label>
+          Contraseña
+          <input type="password" formControlName="password" autocomplete="current-password" />
+        </label>
+
+        @if (errorMessage()) {
+          <p class="form-error">{{ errorMessage() }}</p>
+        }
+
+        <button type="submit" [disabled]="loading()">
+          <svg lucideLogIn [size]="18" aria-hidden="true"></svg>
+          <span>{{ loading() ? 'Ingresando' : 'Ingresar' }}</span>
+        </button>
+      </form>
+    </div>
+  </section>
+</main>

@@ -44,12 +44,10 @@ class UpdateOperationSchedule:
             tenant_id=command.tenant_id,
             location_id=command.location_id,
         )
-        for day in days:
-            self.publisher.publish_day(
-                astdb_family=astdb_family,
-                day_of_week=day.day_of_week,
-                ranges=day.ranges,
-            )
+        self.publisher.publish_days(
+            astdb_family=astdb_family,
+            days=days,
+        )
 
         return after_value
 

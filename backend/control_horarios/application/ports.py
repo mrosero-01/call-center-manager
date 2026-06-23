@@ -36,6 +36,13 @@ class ScheduleRepository(Protocol):
 class SchedulePublisher(Protocol):
     """Puerto de salida para publicar horarios fuera de la aplicacion."""
 
+    def publish_days(
+        self,
+        astdb_family: str,
+        days: Sequence[ScheduleDayInput],
+    ) -> None:
+        pass
+
     def publish_day(
         self,
         astdb_family: str,
