@@ -1,7 +1,9 @@
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.urls import reverse
 from django.test import override_settings
 from django.test import SimpleTestCase, TestCase
@@ -9,7 +11,8 @@ from rest_framework.test import APITestCase
 
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.use_cases import UpdateOperationSchedule
-from .infrastructure.asterisk.ami_client import SocketAmiClient
+from .infrastructure.asterisk.ami_client import AmiClientError, SocketAmiClient
+from .infrastructure.asterisk.astdb_importer import parse_astdb_schedule_rows
 from .infrastructure.asterisk.factories import build_schedule_publisher
 from .infrastructure.asterisk.schedule_formatter import (
     build_schedule_astdb_key,
@@ -47,12 +50,16 @@ class FakeAmiClient:
 
 
 class FakeSocket:
-    def __init__(self, responses):
-        self.responses = [
-            response.encode("utf-8")
-            for response in responses
-        ]
+    def __init__(self, responses, timeout_after_responses=False):
+        self.responses = []
+        for response in responses:
+            if response is None:
+                self.responses.append(None)
+            else:
+                self.responses.append(response.encode("utf-8"))
+
         self.sent_payloads = []
+        self.timeout_after_responses = timeout_after_responses
 
     def __enter__(self):
         return self
@@ -68,9 +75,16 @@ class FakeSocket:
 
     def recv(self, buffer_size):
         if not self.responses:
+            if self.timeout_after_responses:
+                raise TimeoutError()
+
             return b""
 
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if response is None:
+            raise TimeoutError()
+
+        return response
 
 
 class FakeScheduleRepository:
@@ -142,6 +156,11 @@ class FakeSchedulePublisher:
         )
 
 
+class FailingSchedulePublisher:
+    def publish_day(self, astdb_family, day_of_week, ranges):
+        raise AmiClientError("AMI no disponible")
+
+
 class AstdbScheduleFormatterTests(SimpleTestCase):
     def test_formats_ranges_as_astdb_value(self):
         ranges = [
@@ -176,6 +195,38 @@ class AstdbScheduleFormatterTests(SimpleTestCase):
         self.assertEqual(value, "08:00-12:00|14:00-23:59")
 
 
+class AstdbScheduleImporterTests(SimpleTestCase):
+    def test_parses_weekly_schedule_rows_and_skips_legacy_keys(self):
+        output = """
+Output: /horario/callcenter_principal/cierre : 14
+Output: /horario/callcenter_principal/Mon : 14:00-18:00|08:00-12:00
+Output: /horario/callcenter_principal/Tue : 08:00-18:00
+"""
+
+        rows = parse_astdb_schedule_rows(output)
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "astdb_family": "callcenter_principal",
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "14:00", "end": "18:00"},
+                    ],
+                },
+                {
+                    "astdb_family": "callcenter_principal",
+                    "day_of_week": "Tue",
+                    "ranges": [
+                        {"start": "08:00", "end": "18:00"},
+                    ],
+                },
+            ],
+        )
+
+
 class AmiSchedulePublisherTests(SimpleTestCase):
     def test_publishes_day_to_astdb_using_ami_db_put(self):
         ami_client = FakeAmiClient()
@@ -203,6 +254,37 @@ class AmiSchedulePublisherTests(SimpleTestCase):
 
 
 class SocketAmiClientTests(SimpleTestCase):
+    def test_accepts_single_line_ami_banner_before_login(self):
+        fake_socket = FakeSocket(
+            responses=[
+                "Asterisk Call Manager/5.0\r\n",
+                None,
+                "Response: Success\r\nMessage: Authentication accepted\r\n\r\n",
+                "Response: Success\r\nMessage: Updated database successfully\r\n\r\n",
+                "Response: Goodbye\r\n\r\n",
+            ]
+        )
+        client = SocketAmiClient(
+            host="127.0.0.1",
+            port=5038,
+            username="admin",
+            password="secret",
+        )
+
+        with patch(
+            "control_horarios.infrastructure.asterisk.ami_client.socket.create_connection",
+            return_value=fake_socket,
+        ):
+            client.db_put(
+                family="horario",
+                key="pas_aba_cla/Mon",
+                value="08:00-12:00",
+            )
+
+        sent_payload = "".join(fake_socket.sent_payloads)
+
+        self.assertIn("Action: Login\r\n", sent_payload)
+
     def test_sends_login_dbput_and_logoff_actions(self):
         fake_socket = FakeSocket(
             responses=[
@@ -371,6 +453,44 @@ class UpdateOperationScheduleTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, "El motivo del cambio es obligatorio."):
             use_case.execute(command)
 
+    def test_orders_ranges_before_saving_and_publishing(self):
+        repository = FakeScheduleRepository()
+        publisher = FakeSchedulePublisher()
+        use_case = UpdateOperationSchedule(repository, publisher)
+        command = UpdateOperationScheduleCommand(
+            tenant_id=1,
+            location_id=10,
+            changed_by_id=7,
+            reason="Ordenar franjas",
+            timezone="America/Bogota",
+            days=[
+                ScheduleDayInput(
+                    day_of_week="Mon",
+                    ranges=[
+                        {"start": "14:00", "end": "18:00"},
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                ),
+            ],
+        )
+
+        use_case.execute(command)
+
+        self.assertEqual(
+            repository.saved_schedule["days"][0].ranges,
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+        self.assertEqual(
+            publisher.published_days[0]["ranges"],
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+
     def test_rejects_invalid_time_range(self):
         repository = FakeScheduleRepository()
         publisher = FakeSchedulePublisher()
@@ -393,6 +513,53 @@ class UpdateOperationScheduleTests(SimpleTestCase):
 
         with self.assertRaisesMessage(ValueError, "El inicio del rango debe ser menor al fin."):
             use_case.execute(command)
+
+    def test_rejects_overlapping_ranges(self):
+        repository = FakeScheduleRepository()
+        publisher = FakeSchedulePublisher()
+        use_case = UpdateOperationSchedule(repository, publisher)
+        command = UpdateOperationScheduleCommand(
+            tenant_id=1,
+            location_id=10,
+            changed_by_id=7,
+            reason="Rangos solapados",
+            timezone="America/Bogota",
+            days=[
+                ScheduleDayInput(
+                    day_of_week="Mon",
+                    ranges=[
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "11:00", "end": "15:00"},
+                    ],
+                ),
+            ],
+        )
+
+        with self.assertRaisesMessage(ValueError, "Las franjas horarias no pueden solaparse."):
+            use_case.execute(command)
+
+    def test_allows_closed_day_with_empty_ranges(self):
+        repository = FakeScheduleRepository()
+        publisher = FakeSchedulePublisher()
+        use_case = UpdateOperationSchedule(repository, publisher)
+        command = UpdateOperationScheduleCommand(
+            tenant_id=1,
+            location_id=10,
+            changed_by_id=7,
+            reason="Cerrar domingo",
+            timezone="America/Bogota",
+            days=[
+                ScheduleDayInput(
+                    day_of_week="Sun",
+                    ranges=[],
+                ),
+            ],
+        )
+
+        result = use_case.execute(command)
+
+        self.assertEqual(result["days"]["Sun"], [])
+        self.assertEqual(publisher.published_days[0]["ranges"], [])
 
 
 class DjangoScheduleRepositoryTests(TestCase):
@@ -520,6 +687,66 @@ class DjangoScheduleRepositoryTests(TestCase):
         self.assertEqual(change_log.after_value, after_value)
 
 
+class ImportAstdbSchedulesCommandTests(TestCase):
+    def test_imports_weekly_schedules_from_astdb(self):
+        output = """
+Response: Success
+Output: /horario/callcenter_principal/cierre : 14
+Output: /horario/callcenter_principal/Mon : 14:00-18:00|08:00-12:00
+Output: /horario/callcenter_principal/Tue : 08:00-18:00
+"""
+        stdout = StringIO()
+
+        with patch(
+            "control_horarios.management.commands.import_astdb_schedules.SocketAmiClient.command",
+            return_value=output,
+        ):
+            call_command(
+                "import_astdb_schedules",
+                tenant_code="pas",
+                tenant_name="PAS",
+                stdout=stdout,
+            )
+
+        tenant = Tenant.objects.get(code="pas")
+        location = CallCenterLocation.objects.get(astdb_family="callcenter_principal")
+        schedule = OperationSchedule.objects.get(location=location)
+
+        self.assertEqual(location.tenant, tenant)
+        self.assertEqual(
+            schedule.days.get(day_of_week="Mon").ranges,
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+        self.assertEqual(
+            schedule.days.get(day_of_week="Tue").ranges,
+            [
+                {"start": "08:00", "end": "18:00"},
+            ],
+        )
+        self.assertIn("Horarios importados: 2", stdout.getvalue())
+
+    def test_dry_run_does_not_write_data(self):
+        output = "Output: /horario/callcenter_principal/Mon : 08:00-12:00"
+        stdout = StringIO()
+
+        with patch(
+            "control_horarios.management.commands.import_astdb_schedules.SocketAmiClient.command",
+            return_value=output,
+        ):
+            call_command(
+                "import_astdb_schedules",
+                tenant_code="pas",
+                dry_run=True,
+                stdout=stdout,
+            )
+
+        self.assertEqual(CallCenterLocation.objects.count(), 0)
+        self.assertIn("callcenter_principal", stdout.getvalue())
+
+
 class OperationScheduleApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="PAS", code="pas")
@@ -542,6 +769,7 @@ class OperationScheduleApiTests(APITestCase):
             "operation-schedule-update",
             kwargs={"location_id": self.location.id},
         )
+        self.locations_url = reverse("callcenter-location-list")
 
     def test_member_can_update_operation_schedule(self):
         self.client.force_authenticate(user=self.user)
@@ -583,6 +811,143 @@ class OperationScheduleApiTests(APITestCase):
             ScheduleChangeLog.objects.get().reason,
             "Extension por campana especial",
         )
+
+    def test_lists_locations_available_to_admin_user(self):
+        other_tenant = Tenant.objects.create(name="OTRO", code="otro")
+        CallCenterLocation.objects.create(
+            tenant=other_tenant,
+            name="Otro callcenter",
+            code="otro_callcenter",
+            astdb_family="otro_callcenter",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self.locations_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["id"], self.location.id)
+        self.assertEqual(response.data[0]["astdb_family"], "pas_aba_cla")
+
+    def test_gets_current_operation_schedule(self):
+        schedule = OperationSchedule.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            timezone="America/Bogota",
+        )
+        OperationScheduleDay.objects.create(
+            schedule=schedule,
+            day_of_week="Mon",
+            ranges=[
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["location"]["id"], self.location.id)
+        self.assertEqual(response.data["timezone"], "America/Bogota")
+        self.assertEqual(
+            response.data["days"]["Mon"],
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+
+    def test_api_orders_ranges_before_saving(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Ordenar franjas",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "14:00", "end": "18:00"},
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["days"]["Mon"],
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+
+    def test_api_rejects_overlapping_ranges(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Solape accidental",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "11:00", "end": "15:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("days", response.data)
+
+    def test_api_accepts_closed_day_with_empty_ranges(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Cerrar domingo",
+            "days": [
+                {
+                    "day_of_week": "Sun",
+                    "ranges": [],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["days"]["Sun"], [])
+
+    def test_api_returns_502_when_asterisk_sync_fails(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Prueba error AMI",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        with patch(
+            "control_horarios.views.build_schedule_publisher",
+            return_value=FailingSchedulePublisher(),
+        ):
+            response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("asterisk_error", response.data)
+        self.assertEqual(OperationSchedule.objects.count(), 1)
 
     def test_api_keeps_omitted_existing_days(self):
         schedule = OperationSchedule.objects.create(

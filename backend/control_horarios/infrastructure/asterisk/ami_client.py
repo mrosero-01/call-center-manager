@@ -73,7 +73,13 @@ class SocketAmiClient:
         chunks = []
 
         while True:
-            chunk = connection.recv(4096)
+            try:
+                chunk = connection.recv(4096)
+            except socket.timeout:
+                if chunks:
+                    break
+                raise
+
             if not chunk:
                 break
 

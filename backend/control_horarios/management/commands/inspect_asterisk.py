@@ -84,7 +84,15 @@ class Command(BaseCommand):
             self.stdout.write(output)
             return
 
-        contexts = sorted(set(re.findall(r"^\[ Context '([^']+)'", output, re.MULTILINE)))
+        contexts = sorted(
+            set(
+                re.findall(
+                    r"^(?:Output:\s*)?\[ Context '([^']+)'",
+                    output,
+                    re.MULTILINE,
+                )
+            )
+        )
         if not contexts:
             self.stdout.write("No se detectaron contextos en la salida del dialplan.")
             return

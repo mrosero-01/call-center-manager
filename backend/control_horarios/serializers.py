@@ -1,6 +1,16 @@
 from rest_framework import serializers
 
+from .application.schedule_rules import normalize_ranges
 from .models import OperationScheduleDay
+from .models import CallCenterLocation
+
+
+class CallCenterLocationSerializer(serializers.ModelSerializer):
+    tenant = serializers.CharField(source="tenant.code")
+
+    class Meta:
+        model = CallCenterLocation
+        fields = ("id", "name", "code", "astdb_family", "tenant")
 
 
 class ScheduleRangeSerializer(serializers.Serializer):
@@ -17,6 +27,12 @@ class ScheduleRangeSerializer(serializers.Serializer):
 class ScheduleDaySerializer(serializers.Serializer):
     day_of_week = serializers.ChoiceField(choices=OperationScheduleDay.Weekday.choices)
     ranges = ScheduleRangeSerializer(many=True, allow_empty=True)
+
+    def validate_ranges(self, ranges):
+        try:
+            return normalize_ranges(ranges)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 
 class UpdateOperationScheduleSerializer(serializers.Serializer):

@@ -2,6 +2,7 @@ from typing import Sequence
 
 from .commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .ports import SchedulePublisher, ScheduleRepository
+from .schedule_rules import normalize_ranges
 
 
 class UpdateOperationSchedule:
@@ -18,7 +19,7 @@ class UpdateOperationSchedule:
     def execute(self, command: UpdateOperationScheduleCommand) -> dict:
         reason = command.reason.strip()
         self._validate_reason(reason)
-        self._validate_days(command.days)
+        days = self._normalize_days(command.days)
 
         before_value = self.repository.get_schedule_snapshot(
             tenant_id=command.tenant_id,
@@ -28,7 +29,7 @@ class UpdateOperationSchedule:
             tenant_id=command.tenant_id,
             location_id=command.location_id,
             timezone=command.timezone,
-            days=command.days,
+            days=days,
         )
         self.repository.save_change_log(
             tenant_id=command.tenant_id,
@@ -43,7 +44,7 @@ class UpdateOperationSchedule:
             tenant_id=command.tenant_id,
             location_id=command.location_id,
         )
-        for day in command.days:
+        for day in days:
             self.publisher.publish_day(
                 astdb_family=astdb_family,
                 day_of_week=day.day_of_week,
@@ -56,13 +57,20 @@ class UpdateOperationSchedule:
         if not reason:
             raise ValueError("El motivo del cambio es obligatorio.")
 
-    def _validate_days(self, days: Sequence[ScheduleDayInput]) -> None:
+    def _normalize_days(self, days: Sequence[ScheduleDayInput]) -> list[ScheduleDayInput]:
         if not days:
             raise ValueError("Debe enviar al menos un dia de horario.")
 
+        normalized_days = []
+        seen_days = set()
         for day in days:
             if not day.day_of_week:
                 raise ValueError("Cada dia debe tener day_of_week.")
+
+            if day.day_of_week in seen_days:
+                raise ValueError("No puede enviar el mismo dia mas de una vez.")
+
+            seen_days.add(day.day_of_week)
 
             for time_range in day.ranges:
                 start = time_range.get("start")
@@ -73,3 +81,12 @@ class UpdateOperationSchedule:
 
                 if start >= end:
                     raise ValueError("El inicio del rango debe ser menor al fin.")
+
+            normalized_days.append(
+                ScheduleDayInput(
+                    day_of_week=day.day_of_week,
+                    ranges=normalize_ranges(day.ranges),
+                )
+            )
+
+        return normalized_days

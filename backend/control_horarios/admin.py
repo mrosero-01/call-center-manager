@@ -12,20 +12,20 @@ from .models import (
 
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):
-    list_display = ("name", "code")
+    list_display = ("id", "name", "code")
     search_fields = ("name", "code")
 
 
 @admin.register(TenantMembership)
 class TenantMembershipAdmin(admin.ModelAdmin):
-    list_display = ("user", "tenant", "role", "is_active")
+    list_display = ("id", "user", "tenant", "role", "is_active")
     list_filter = ("tenant", "role", "is_active")
     search_fields = ("user__username", "tenant__name", "tenant__code")
 
 
 @admin.register(CallCenterLocation)
 class CallCenterLocationAdmin(admin.ModelAdmin):
-    list_display = ("name", "code", "tenant", "astdb_family")
+    list_display = ("id", "name", "code", "tenant", "astdb_family")
     list_filter = ("tenant",)
     search_fields = ("name", "code", "astdb_family", "tenant__name", "tenant__code")
 
@@ -37,7 +37,7 @@ class OperationScheduleDayInline(admin.TabularInline):
 
 @admin.register(OperationSchedule)
 class OperationScheduleAdmin(admin.ModelAdmin):
-    list_display = ("location", "tenant", "timezone", "updated_at")
+    list_display = ("id", "location", "tenant", "timezone", "updated_at")
     list_filter = ("tenant", "timezone")
     search_fields = ("location__name", "location__code", "location__astdb_family")
     inlines = [OperationScheduleDayInline]
@@ -45,14 +45,14 @@ class OperationScheduleAdmin(admin.ModelAdmin):
 
 @admin.register(OperationScheduleDay)
 class OperationScheduleDayAdmin(admin.ModelAdmin):
-    list_display = ("schedule", "day_of_week", "ranges")
+    list_display = ("id", "schedule", "day_of_week", "ranges")
     list_filter = ("day_of_week",)
     search_fields = ("schedule__location__name", "schedule__location__astdb_family")
 
 
 @admin.register(ScheduleChangeLog)
 class ScheduleChangeLogAdmin(admin.ModelAdmin):
-    list_display = ("location", "tenant", "changed_by", "created_at")
+    list_display = ("id", "location", "tenant", "changed_by", "created_at")
     list_filter = ("tenant", "created_at")
     search_fields = ("location__name", "location__astdb_family", "reason")
     readonly_fields = (
