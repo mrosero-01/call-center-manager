@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Call Center schedule sync worker every 15 seconds
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Unit=call-center-schedule-sync.service
+
+[Install]
+WantedBy=timers.target

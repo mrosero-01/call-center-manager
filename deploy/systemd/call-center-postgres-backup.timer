@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Call Center Manager PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+Unit=call-center-postgres-backup.service
+
+[Install]
+WantedBy=timers.target

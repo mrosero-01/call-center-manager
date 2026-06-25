@@ -158,6 +158,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -198,3 +199,38 @@ ASTERISK_AMI_PORT = int(os.getenv("ASTERISK_AMI_PORT", "5038"))
 ASTERISK_AMI_USERNAME = os.getenv("ASTERISK_AMI_USERNAME", "")
 ASTERISK_AMI_PASSWORD = os.getenv("ASTERISK_AMI_PASSWORD", "")
 ASTERISK_AMI_TIMEOUT = float(os.getenv("ASTERISK_AMI_TIMEOUT", "5"))
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "[{levelname}] {asctime} {name}: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": LOG_LEVEL,
+    },
+    "loggers": {
+        "django.security": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "control_horarios": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+    },
+}

@@ -170,6 +170,9 @@ celerybeat.pid
 .env
 .env.*
 !.env.example
+*.sqlite3.backup-*
+backups/
+backend/staticfiles/
 .venv
 .venv/
 env/

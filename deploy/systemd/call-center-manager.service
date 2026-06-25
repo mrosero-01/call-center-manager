@@ -1,0 +1,17 @@
+[Unit]
+Description=Call Center Manager Django API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=miguel
+Group=miguel
+WorkingDirectory=/home/miguel/Siptic-p/call-center-manager/backend
+EnvironmentFile=/home/miguel/Siptic-p/call-center-manager/.env
+ExecStart=/home/miguel/Siptic-p/call-center-manager/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --access-logfile - --error-logfile -
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Process pending Call Center schedule sync jobs
+After=network.target
+
+[Service]
+Type=oneshot
+User=miguel
+Group=miguel
+WorkingDirectory=/home/miguel/Siptic-p/call-center-manager/backend
+EnvironmentFile=/home/miguel/Siptic-p/call-center-manager/.env
+ExecStart=/home/miguel/Siptic-p/call-center-manager/.venv/bin/python manage.py process_schedule_sync_jobs --retry-failed --limit 50
