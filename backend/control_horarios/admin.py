@@ -67,6 +67,9 @@ class ScheduleChangeLogAdmin(admin.ModelAdmin):
         "created_at",
     )
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(ScheduleSyncJob)
 class ScheduleSyncJobAdmin(admin.ModelAdmin):
@@ -97,3 +100,6 @@ class ScheduleSyncJobAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+
+    def has_delete_permission(self, request, obj=None):
+        return False

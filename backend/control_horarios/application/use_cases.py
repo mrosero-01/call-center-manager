@@ -11,7 +11,6 @@ class UpdateOperationSchedule:
     def __init__(
         self,
         repository: ScheduleRepository,
-        publisher=None,
     ):
         self.repository = repository
 
@@ -32,6 +31,12 @@ class UpdateOperationSchedule:
     def _validate_reason(self, reason: str) -> None:
         if not reason:
             raise ValueError("El motivo del cambio es obligatorio.")
+
+        if len(reason) < 8:
+            raise ValueError("El motivo debe tener al menos 8 caracteres.")
+
+        if len(reason) > 250:
+            raise ValueError("El motivo no puede superar 250 caracteres.")
 
     def _normalize_days(self, days: Sequence[ScheduleDayInput]) -> list[ScheduleDayInput]:
         if not days:
@@ -54,9 +59,6 @@ class UpdateOperationSchedule:
 
                 if not start or not end:
                     raise ValueError("Cada rango debe tener start y end.")
-
-                if start >= end:
-                    raise ValueError("El inicio del rango debe ser menor al fin.")
 
             normalized_days.append(
                 ScheduleDayInput(

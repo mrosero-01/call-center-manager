@@ -1,4 +1,8 @@
+import re
+
+
 VALID_WEEKDAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 def normalize_ranges(ranges):
@@ -9,6 +13,8 @@ def normalize_ranges(ranges):
         }
         for time_range in ranges
     ]
+    _validate_time_format(normalized_ranges)
+    _validate_range_order(normalized_ranges)
     normalized_ranges.sort(key=lambda time_range: time_range["start"])
     _validate_no_overlaps(normalized_ranges)
 
@@ -53,3 +59,18 @@ def _validate_no_overlaps(ranges):
             raise ValueError("Las franjas horarias no pueden solaparse.")
 
         previous_range = current_range
+
+
+def _validate_range_order(ranges):
+    for time_range in ranges:
+        if time_range["start"] >= time_range["end"]:
+            raise ValueError("El inicio del rango debe ser menor al fin.")
+
+
+def _validate_time_format(ranges):
+    for time_range in ranges:
+        start = time_range.get("start")
+        end = time_range.get("end")
+
+        if not TIME_PATTERN.match(start or "") or not TIME_PATTERN.match(end or ""):
+            raise ValueError("Las horas deben usar formato HH:mm.")

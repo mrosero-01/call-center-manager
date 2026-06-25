@@ -103,11 +103,12 @@ class Command(BaseCommand):
             last_error="",
             synced_at=now,
         )
-        OperationSchedule.objects.filter(id=job.schedule_id).update(
-            sync_status=OperationSchedule.SyncStatus.SYNCED,
-            last_sync_error="",
-            last_synced_at=now,
-        )
+        if self._is_latest_job_for_schedule(job):
+            OperationSchedule.objects.filter(id=job.schedule_id).update(
+                sync_status=OperationSchedule.SyncStatus.SYNCED,
+                last_sync_error="",
+                last_synced_at=now,
+            )
 
     @transaction.atomic
     def _mark_failed(self, job, exc):
@@ -117,7 +118,14 @@ class Command(BaseCommand):
             attempts=job.attempts + 1,
             last_error=error_message,
         )
-        OperationSchedule.objects.filter(id=job.schedule_id).update(
-            sync_status=OperationSchedule.SyncStatus.FAILED,
-            last_sync_error=error_message,
-        )
+        if self._is_latest_job_for_schedule(job):
+            OperationSchedule.objects.filter(id=job.schedule_id).update(
+                sync_status=OperationSchedule.SyncStatus.FAILED,
+                last_sync_error=error_message,
+            )
+
+    def _is_latest_job_for_schedule(self, job):
+        return not ScheduleSyncJob.objects.filter(
+            schedule_id=job.schedule_id,
+            id__gt=job.id,
+        ).exists()

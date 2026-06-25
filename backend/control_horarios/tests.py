@@ -567,8 +567,7 @@ class SchedulePublisherFactoryTests(SimpleTestCase):
 class UpdateOperationScheduleTests(SimpleTestCase):
     def test_updates_schedule_logs_reason_and_publishes_days(self):
         repository = FakeScheduleRepository()
-        publisher = FakeSchedulePublisher()
-        use_case = UpdateOperationSchedule(repository, publisher)
+        use_case = UpdateOperationSchedule(repository)
         command = UpdateOperationScheduleCommand(
             tenant_id=1,
             location_id=10,
@@ -621,8 +620,7 @@ class UpdateOperationScheduleTests(SimpleTestCase):
 
     def test_requires_change_reason(self):
         repository = FakeScheduleRepository()
-        publisher = FakeSchedulePublisher()
-        use_case = UpdateOperationSchedule(repository, publisher)
+        use_case = UpdateOperationSchedule(repository)
         command = UpdateOperationScheduleCommand(
             tenant_id=1,
             location_id=10,
@@ -642,10 +640,53 @@ class UpdateOperationScheduleTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, "El motivo del cambio es obligatorio."):
             use_case.execute(command)
 
+    def test_requires_reason_with_minimum_length(self):
+        repository = FakeScheduleRepository()
+        use_case = UpdateOperationSchedule(repository)
+        command = UpdateOperationScheduleCommand(
+            tenant_id=1,
+            location_id=10,
+            changed_by_id=7,
+            reason="Corto",
+            timezone="America/Bogota",
+            days=[
+                ScheduleDayInput(
+                    day_of_week="Mon",
+                    ranges=[
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                ),
+            ],
+        )
+
+        with self.assertRaisesMessage(ValueError, "El motivo debe tener al menos 8 caracteres."):
+            use_case.execute(command)
+
+    def test_rejects_invalid_time_format_at_domain_level(self):
+        repository = FakeScheduleRepository()
+        use_case = UpdateOperationSchedule(repository)
+        command = UpdateOperationScheduleCommand(
+            tenant_id=1,
+            location_id=10,
+            changed_by_id=7,
+            reason="Cambio operativo",
+            timezone="America/Bogota",
+            days=[
+                ScheduleDayInput(
+                    day_of_week="Mon",
+                    ranges=[
+                        {"start": "8:00", "end": "12:00"},
+                    ],
+                ),
+            ],
+        )
+
+        with self.assertRaisesMessage(ValueError, "Las horas deben usar formato HH:mm."):
+            use_case.execute(command)
+
     def test_orders_ranges_before_saving_and_publishing(self):
         repository = FakeScheduleRepository()
-        publisher = FakeSchedulePublisher()
-        use_case = UpdateOperationSchedule(repository, publisher)
+        use_case = UpdateOperationSchedule(repository)
         command = UpdateOperationScheduleCommand(
             tenant_id=1,
             location_id=10,
@@ -682,8 +723,7 @@ class UpdateOperationScheduleTests(SimpleTestCase):
 
     def test_rejects_invalid_time_range(self):
         repository = FakeScheduleRepository()
-        publisher = FakeSchedulePublisher()
-        use_case = UpdateOperationSchedule(repository, publisher)
+        use_case = UpdateOperationSchedule(repository)
         command = UpdateOperationScheduleCommand(
             tenant_id=1,
             location_id=10,
@@ -705,8 +745,7 @@ class UpdateOperationScheduleTests(SimpleTestCase):
 
     def test_rejects_overlapping_ranges(self):
         repository = FakeScheduleRepository()
-        publisher = FakeSchedulePublisher()
-        use_case = UpdateOperationSchedule(repository, publisher)
+        use_case = UpdateOperationSchedule(repository)
         command = UpdateOperationScheduleCommand(
             tenant_id=1,
             location_id=10,
@@ -729,8 +768,7 @@ class UpdateOperationScheduleTests(SimpleTestCase):
 
     def test_allows_closed_day_with_empty_ranges(self):
         repository = FakeScheduleRepository()
-        publisher = FakeSchedulePublisher()
-        use_case = UpdateOperationSchedule(repository, publisher)
+        use_case = UpdateOperationSchedule(repository)
         command = UpdateOperationScheduleCommand(
             tenant_id=1,
             location_id=10,
@@ -949,6 +987,7 @@ class CheckAmiCommandTests(SimpleTestCase):
         client.command.return_value = (
             "Output: /horario/__django_check__/Ping : 00:00-00:01\r\n"
         )
+        publisher = FakeSchedulePublisher()
         stdout = StringIO()
 
         with patch(
@@ -1072,6 +1111,66 @@ class ProcessScheduleSyncJobsCommandTests(TestCase):
         self.assertEqual(job.attempts, 1)
         self.assertEqual(self.schedule.sync_status, OperationSchedule.SyncStatus.FAILED)
         self.assertIn("AMI no disponible", job.last_error)
+
+    def test_old_job_does_not_override_newer_schedule_status(self):
+        old_job = ScheduleSyncJob.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            schedule=self.schedule,
+            requested_by=self.user,
+            reason="Cambio operativo anterior",
+            payload={
+                "timezone": "America/Bogota",
+                "days": [
+                    {
+                        "day_of_week": "Mon",
+                        "ranges": [
+                            {"start": "08:00", "end": "12:00"},
+                        ],
+                    },
+                ],
+            },
+        )
+        newer_job = ScheduleSyncJob.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            schedule=self.schedule,
+            requested_by=self.user,
+            reason="Cambio operativo nuevo",
+            payload={
+                "timezone": "America/Bogota",
+                "days": [
+                    {
+                        "day_of_week": "Tue",
+                        "ranges": [
+                            {"start": "14:00", "end": "18:00"},
+                        ],
+                    },
+                ],
+            },
+        )
+        ScheduleSyncJob.objects.filter(id=newer_job.id).update(
+            status=ScheduleSyncJob.Status.FAILED,
+            last_error="AMI no disponible",
+        )
+        OperationSchedule.objects.filter(id=self.schedule.id).update(
+            sync_status=OperationSchedule.SyncStatus.FAILED,
+            last_sync_error="AMI no disponible",
+        )
+        stdout = StringIO()
+
+        with patch(
+            "control_horarios.management.commands.process_schedule_sync_jobs.build_schedule_publisher",
+            return_value=FakeSchedulePublisher(),
+        ):
+            call_command("process_schedule_sync_jobs", limit=1, stdout=stdout)
+
+        old_job.refresh_from_db()
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(old_job.status, ScheduleSyncJob.Status.SYNCED)
+        self.assertEqual(self.schedule.sync_status, OperationSchedule.SyncStatus.FAILED)
+        self.assertEqual(self.schedule.last_sync_error, "AMI no disponible")
 
 
 @override_settings(ASTERISK_AMI_ENABLED=False)

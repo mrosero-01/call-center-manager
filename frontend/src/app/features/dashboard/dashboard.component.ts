@@ -443,6 +443,11 @@ export class DashboardComponent implements OnInit {
       return;
     }
 
+    if (trimmedReason.length > 250) {
+      this.errorMessage.set('El motivo no puede superar 250 caracteres.');
+      return;
+    }
+
     this.saving.set(true);
     this.errorMessage.set('');
     this.statusMessage.set('');

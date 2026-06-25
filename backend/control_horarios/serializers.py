@@ -83,7 +83,12 @@ class ScheduleDaySerializer(serializers.Serializer):
 
 class UpdateOperationScheduleSerializer(serializers.Serializer):
     timezone = serializers.CharField(default="America/Bogota")
-    reason = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    reason = serializers.CharField(
+        allow_blank=False,
+        max_length=250,
+        min_length=8,
+        trim_whitespace=True,
+    )
     days = ScheduleDaySerializer(many=True, allow_empty=False)
 
     def validate_days(self, days):

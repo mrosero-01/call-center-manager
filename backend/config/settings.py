@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 import os
 
@@ -27,17 +28,25 @@ def env_list(name, default=""):
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
+def env_bool(name, default="false"):
+    return os.getenv(name, default).lower() == "true"
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
+DEFAULT_DEV_SECRET_KEY = "django-insecure-dev-only-change-me"
 SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY",
-    "django-insecure-dev-only-change-me",
+    DEFAULT_DEV_SECRET_KEY,
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+DEBUG = env_bool("DJANGO_DEBUG", "true")
+
+if not DEBUG and SECRET_KEY == DEFAULT_DEV_SECRET_KEY:
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY debe configurarse en produccion.")
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 
@@ -161,10 +170,7 @@ REST_FRAMEWORK = {
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_EXPIRE_AT_BROWSER_CLOSE = os.getenv(
-    "SESSION_EXPIRE_AT_BROWSER_CLOSE",
-    "true",
-).lower() == "true"
+SESSION_EXPIRE_AT_BROWSER_CLOSE = env_bool("SESSION_EXPIRE_AT_BROWSER_CLOSE", "true")
 
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = "Lax"
@@ -173,12 +179,20 @@ CSRF_TRUSTED_ORIGINS = env_list(
     "http://localhost:4200,http://127.0.0.1:4200",
 )
 
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+COOKIE_SECURE = env_bool("COOKIE_SECURE", "false")
 SESSION_COOKIE_SECURE = COOKIE_SECURE
 CSRF_COOKIE_SECURE = COOKIE_SECURE
 
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", "false")
+SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", "false")
+SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", "false")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if env_bool(
+    "TRUST_PROXY_SSL_HEADER",
+    "false",
+) else None
 
-ASTERISK_AMI_ENABLED = os.getenv("ASTERISK_AMI_ENABLED", "false").lower() == "true"
+ASTERISK_AMI_ENABLED = env_bool("ASTERISK_AMI_ENABLED", "false")
 ASTERISK_AMI_HOST = os.getenv("ASTERISK_AMI_HOST", "127.0.0.1")
 ASTERISK_AMI_PORT = int(os.getenv("ASTERISK_AMI_PORT", "5038"))
 ASTERISK_AMI_USERNAME = os.getenv("ASTERISK_AMI_USERNAME", "")

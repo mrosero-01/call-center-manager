@@ -285,6 +285,7 @@
           Motivo del cambio obligatorio
           <input
             type="text"
+            maxlength="250"
             [ngModel]="reason()"
             (ngModelChange)="updateReason($event)"
             placeholder="Ej. Ajuste por campaña"
