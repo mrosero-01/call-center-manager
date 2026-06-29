@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, HostListener, OnInit, computed, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
@@ -23,8 +23,14 @@ import {
 
 import { AuthService } from '../../core/auth.service';
 import {
+  AdminCallCenterLocation,
+  AsteriskFamilyPreview,
+  AsteriskImportPreview,
+  AsteriskInspectResult,
   CallCenterLocation,
   CurrentUser,
+  ScheduleSyncJob,
+  Tenant,
   ScheduleChangeLog,
   SchedulePreviewAction,
   ScheduleSnapshot,
@@ -46,6 +52,7 @@ interface ScheduleRule {
 }
 
 type ScheduleDays = Record<Weekday, TimeRange[]>;
+type ActiveModule = 'dashboard' | 'schedule' | 'admin';
 
 const weekdays: WeekdayOption[] = [
   { day: 'Mon', label: 'Lunes', shortLabel: 'Lun' },
@@ -98,9 +105,10 @@ function emptyScheduleDays(): ScheduleDays {
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.css'
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   readonly weekdays = weekdays;
   readonly user = signal<CurrentUser | null>(null);
+  readonly activeModule = signal<ActiveModule>('schedule');
   readonly locations = signal<CallCenterLocation[]>([]);
   readonly selectedLocation = signal<CallCenterLocation | null>(null);
   readonly scheduleRules = signal<ScheduleRule[]>([]);
@@ -114,8 +122,31 @@ export class DashboardComponent implements OnInit {
   readonly lastSyncError = signal('');
   readonly statusMessage = signal('');
   readonly errorMessage = signal('');
+  readonly adminTenants = signal<Tenant[]>([]);
+  readonly adminLocations = signal<AdminCallCenterLocation[]>([]);
+  readonly asteriskInspect = signal<AsteriskInspectResult | null>(null);
+  readonly importPreview = signal<AsteriskImportPreview | null>(null);
+  readonly syncJobs = signal<ScheduleSyncJob[]>([]);
+  readonly adminLoading = signal(false);
+  readonly adminActionLoading = signal(false);
+  readonly adminStatusMessage = signal('');
+  readonly adminErrorMessage = signal('');
+  readonly tenantForm = signal({ name: '', code: '' });
+  readonly locationForm = signal({
+    tenant_id: 0,
+    name: '',
+    code: '',
+    astdb_family: ''
+  });
+  readonly importForm = signal({
+    tenant_code: 'pas',
+    tenant_name: 'PAS',
+    family: ''
+  });
 
   private nextRuleId = 1;
+  private statusMessageTimer: ReturnType<typeof setTimeout> | null = null;
+  private adminStatusMessageTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly originalScheduleDays = signal<ScheduleDays>(emptyScheduleDays());
 
   readonly roleLabel = computed(() => {
@@ -174,6 +205,13 @@ export class DashboardComponent implements OnInit {
       ({ day_of_week, ranges }) => this.rangesKey(ranges) !== this.rangesKey(this.originalScheduleDays()[day_of_week])
     )
   );
+  readonly isSuperuser = computed(() => this.user()?.is_superuser ?? false);
+  readonly pendingJobsCount = computed(() =>
+    this.syncJobs().filter((job) => job.status === 'pending').length
+  );
+  readonly failedJobsCount = computed(() =>
+    this.syncJobs().filter((job) => job.status === 'failed').length
+  );
 
   constructor(
     private readonly auth: AuthService,
@@ -193,6 +231,11 @@ export class DashboardComponent implements OnInit {
         void this.router.navigateByUrl('/login');
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.clearStatusMessageTimer();
+    this.clearAdminStatusMessageTimer();
   }
 
   selectLocation(location: CallCenterLocation): void {
@@ -217,6 +260,11 @@ export class DashboardComponent implements OnInit {
   }
 
   refreshSelected(): void {
+    if (this.activeModule() === 'admin') {
+      this.loadAdminData();
+      return;
+    }
+
     const location = this.selectedLocation();
 
     if (!location) {
@@ -225,6 +273,188 @@ export class DashboardComponent implements OnInit {
 
     this.loadSchedule(location.id);
     this.loadChangeLogs(location.id);
+  }
+
+  selectModule(module: ActiveModule): void {
+    if (module === 'admin' && !this.isSuperuser()) {
+      return;
+    }
+
+    this.activeModule.set(module);
+    this.errorMessage.set('');
+    this.statusMessage.set('');
+
+    if (module === 'admin') {
+      this.loadAdminData();
+    }
+  }
+
+  updateTenantForm(field: 'name' | 'code', value: string): void {
+    this.tenantForm.update((form) => ({ ...form, [field]: value }));
+    this.clearAdminMessages();
+  }
+
+  updateLocationForm(field: 'tenant_id' | 'name' | 'code' | 'astdb_family', value: string | number): void {
+    this.locationForm.update((form) => ({ ...form, [field]: field === 'tenant_id' ? Number(value) : value }));
+    this.clearAdminMessages();
+  }
+
+  updateImportForm(field: 'tenant_code' | 'tenant_name' | 'family', value: string): void {
+    this.importForm.update((form) => ({ ...form, [field]: value }));
+    this.importPreview.set(null);
+    this.clearAdminMessages();
+  }
+
+  createTenant(): void {
+    const payload = {
+      name: this.tenantForm().name.trim(),
+      code: this.tenantForm().code.trim()
+    };
+
+    if (!payload.name || !payload.code) {
+      this.adminErrorMessage.set('Nombre y código del cliente son obligatorios.');
+      return;
+    }
+
+    this.adminActionLoading.set(true);
+    this.clearAdminMessages();
+    this.api.createAdminTenant(payload).subscribe({
+      next: (tenant) => {
+        this.adminActionLoading.set(false);
+        this.tenantForm.set({ name: '', code: '' });
+        this.locationForm.update((form) => ({ ...form, tenant_id: tenant.id }));
+        this.setAdminStatusMessage('Cliente creado correctamente.');
+        this.loadAdminData();
+      },
+      error: (error: unknown) => {
+        this.adminActionLoading.set(false);
+        this.adminErrorMessage.set(this.resolveErrorMessage(error));
+      }
+    });
+  }
+
+  createLocation(): void {
+    const payload = {
+      tenant_id: this.locationForm().tenant_id,
+      name: this.locationForm().name.trim(),
+      code: this.locationForm().code.trim(),
+      astdb_family: this.locationForm().astdb_family.trim()
+    };
+
+    if (!payload.tenant_id || !payload.name || !payload.code || !payload.astdb_family) {
+      this.adminErrorMessage.set('Cliente, nombre, código y familia AstDB son obligatorios.');
+      return;
+    }
+
+    this.adminActionLoading.set(true);
+    this.clearAdminMessages();
+    this.api.createAdminLocation(payload).subscribe({
+      next: () => {
+        this.adminActionLoading.set(false);
+        this.locationForm.set({ tenant_id: payload.tenant_id, name: '', code: '', astdb_family: '' });
+        this.setAdminStatusMessage('Call center creado correctamente.');
+        this.loadAdminData();
+        this.loadLocations();
+      },
+      error: (error: unknown) => {
+        this.adminActionLoading.set(false);
+        this.adminErrorMessage.set(this.resolveErrorMessage(error));
+      }
+    });
+  }
+
+  inspectAsterisk(): void {
+    this.adminActionLoading.set(true);
+    this.clearAdminMessages();
+    this.api.inspectAsterisk().subscribe({
+      next: (result) => {
+        this.adminActionLoading.set(false);
+        this.asteriskInspect.set(result);
+        this.setAdminStatusMessage('Inspección de Asterisk actualizada.');
+      },
+      error: (error: unknown) => {
+        this.adminActionLoading.set(false);
+        this.adminErrorMessage.set(this.resolveErrorMessage(error));
+      }
+    });
+  }
+
+  previewAstdbImport(): void {
+    const payload = this.normalizedImportPayload();
+
+    if (!payload.tenant_code) {
+      this.adminErrorMessage.set('El código del cliente es obligatorio para importar.');
+      return;
+    }
+
+    this.adminActionLoading.set(true);
+    this.clearAdminMessages();
+    this.api.previewAsteriskImport(payload).subscribe({
+      next: (preview) => {
+        this.adminActionLoading.set(false);
+        this.importPreview.set(preview);
+        this.setAdminStatusMessage('Vista previa lista. Revisa antes de importar.');
+      },
+      error: (error: unknown) => {
+        this.adminActionLoading.set(false);
+        this.importPreview.set(null);
+        this.adminErrorMessage.set(this.resolveErrorMessage(error));
+      }
+    });
+  }
+
+  importAstdbSchedules(): void {
+    const payload = this.normalizedImportPayload();
+
+    if (!payload.tenant_code) {
+      this.adminErrorMessage.set('El código del cliente es obligatorio para importar.');
+      return;
+    }
+
+    this.adminActionLoading.set(true);
+    this.clearAdminMessages();
+    this.api.importAsteriskSchedules(payload).subscribe({
+      next: (result) => {
+        this.adminActionLoading.set(false);
+        this.importPreview.set(null);
+        this.setAdminStatusMessage(`Importación completa: ${result.imported_days} día(s) importados.`);
+        this.loadAdminData();
+        this.loadLocations();
+      },
+      error: (error: unknown) => {
+        this.adminActionLoading.set(false);
+        this.adminErrorMessage.set(this.resolveErrorMessage(error));
+      }
+    });
+  }
+
+  processSyncJobs(retryFailed = false): void {
+    this.adminActionLoading.set(true);
+    this.clearAdminMessages();
+    this.api
+      .processSyncJobs({
+        limit: 50,
+        retry_failed: retryFailed,
+        max_attempts: 5
+      })
+      .subscribe({
+        next: (result) => {
+          this.adminActionLoading.set(false);
+          this.setAdminStatusMessage(
+            `Procesados: ${result.processed}. Sincronizados: ${result.synced}. Fallidos: ${result.failed}.`
+          );
+          this.loadAdminData();
+          this.refreshSelected();
+        },
+        error: (error: unknown) => {
+          this.adminActionLoading.set(false);
+          this.adminErrorMessage.set(this.resolveErrorMessage(error));
+        }
+      });
+  }
+
+  formatFamilyDays(family: AsteriskFamilyPreview): string {
+    return family.days.map((day) => day.day_of_week).join(', ') || 'Sin días semanales';
   }
 
   addRule(days?: Weekday[], ranges?: TimeRange[]): void {
@@ -379,7 +609,7 @@ export class DashboardComponent implements OnInit {
     }
 
     if (!this.hasScheduleChanges()) {
-      this.statusMessage.set('No hay cambios pendientes para previsualizar.');
+      this.setStatusMessage('No hay cambios pendientes para previsualizar.');
       return;
     }
 
@@ -422,7 +652,7 @@ export class DashboardComponent implements OnInit {
     }
 
     if (!this.hasScheduleChanges()) {
-      this.statusMessage.set('No hay cambios pendientes por guardar.');
+      this.setStatusMessage('No hay cambios pendientes por guardar.');
       return;
     }
 
@@ -465,7 +695,7 @@ export class DashboardComponent implements OnInit {
           this.previewActions.set([]);
           this.applySnapshot(snapshot);
           this.loadChangeLogs(location.id);
-          this.statusMessage.set('Horario guardado. Sincronizacion pendiente con Asterisk.');
+          this.setStatusMessage(this.messageForSavedSchedule(snapshot));
         },
         error: (error: unknown) => {
           this.saving.set(false);
@@ -508,6 +738,37 @@ export class DashboardComponent implements OnInit {
       error: () => {
         this.loading.set(false);
         this.errorMessage.set('No se pudieron cargar los call centers.');
+      }
+    });
+  }
+
+  private loadAdminData(): void {
+    if (!this.isSuperuser()) {
+      return;
+    }
+
+    this.adminLoading.set(true);
+    this.api.getAdminTenants().subscribe({
+      next: (tenants) => {
+        this.adminTenants.set(tenants);
+        if (tenants.length > 0 && this.locationForm().tenant_id === 0) {
+          this.locationForm.update((form) => ({ ...form, tenant_id: tenants[0].id }));
+        }
+      },
+      error: () => this.adminErrorMessage.set('No se pudieron cargar los clientes.')
+    });
+    this.api.getAdminLocations().subscribe({
+      next: (locations) => this.adminLocations.set(locations),
+      error: () => this.adminErrorMessage.set('No se pudieron cargar los call centers.')
+    });
+    this.api.getSyncJobs().subscribe({
+      next: (jobs) => {
+        this.syncJobs.set(jobs);
+        this.adminLoading.set(false);
+      },
+      error: () => {
+        this.syncJobs.set([]);
+        this.adminLoading.set(false);
       }
     });
   }
@@ -661,9 +922,83 @@ export class DashboardComponent implements OnInit {
   }
 
   private clearSaveMessages(): void {
+    this.clearStatusMessageTimer();
     this.statusMessage.set('');
     this.errorMessage.set('');
     this.previewActions.set([]);
+  }
+
+  private clearAdminMessages(): void {
+    this.clearAdminStatusMessageTimer();
+    this.adminStatusMessage.set('');
+    this.adminErrorMessage.set('');
+  }
+
+  private setStatusMessage(message: string): void {
+    this.clearStatusMessageTimer();
+    this.statusMessage.set(message);
+    this.statusMessageTimer = setTimeout(() => {
+      if (this.statusMessage() === message) {
+        this.statusMessage.set('');
+      }
+    }, 5000);
+  }
+
+  private setAdminStatusMessage(message: string): void {
+    this.clearAdminStatusMessageTimer();
+    this.adminStatusMessage.set(message);
+    this.adminStatusMessageTimer = setTimeout(() => {
+      if (this.adminStatusMessage() === message) {
+        this.adminStatusMessage.set('');
+      }
+    }, 5000);
+  }
+
+  private clearStatusMessageTimer(): void {
+    if (!this.statusMessageTimer) {
+      return;
+    }
+
+    clearTimeout(this.statusMessageTimer);
+    this.statusMessageTimer = null;
+  }
+
+  private clearAdminStatusMessageTimer(): void {
+    if (!this.adminStatusMessageTimer) {
+      return;
+    }
+
+    clearTimeout(this.adminStatusMessageTimer);
+    this.adminStatusMessageTimer = null;
+  }
+
+  private normalizedImportPayload(): { tenant_code: string; tenant_name?: string; family?: string } {
+    const form = this.importForm();
+    const payload: { tenant_code: string; tenant_name?: string; family?: string } = {
+      tenant_code: form.tenant_code.trim()
+    };
+
+    if (form.tenant_name.trim()) {
+      payload.tenant_name = form.tenant_name.trim();
+    }
+
+    if (form.family.trim()) {
+      payload.family = form.family.trim();
+    }
+
+    return payload;
+  }
+
+  private messageForSavedSchedule(snapshot: ScheduleSnapshot): string {
+    if (snapshot.sync_status === 'synced') {
+      return 'Horario guardado y sincronizado con Asterisk.';
+    }
+
+    if (snapshot.sync_status === 'failed') {
+      return 'Horario guardado, pero falló la sincronización con Asterisk. Revisa el error AMI.';
+    }
+
+    return 'Horario guardado. Sincronización pendiente con Asterisk.';
   }
 
   private resolveErrorMessage(error: unknown): string {

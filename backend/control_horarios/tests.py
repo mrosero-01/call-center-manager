@@ -1378,7 +1378,31 @@ class OperationScheduleApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["days"]["Sun"], [])
 
-    def test_api_enqueues_sync_job_instead_of_calling_asterisk_inline(self):
+    @override_settings(ASTERISK_AMI_ENABLED=False)
+    def test_api_saves_schedule_and_syncs_immediately_when_possible(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "reason": "Prueba sincronizacion inmediata",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sync_status"], "synced")
+        self.assertEqual(OperationSchedule.objects.count(), 1)
+        self.assertEqual(ScheduleSyncJob.objects.count(), 1)
+        self.assertEqual(ScheduleSyncJob.objects.get().status, ScheduleSyncJob.Status.SYNCED)
+
+    def test_api_keeps_schedule_saved_when_immediate_sync_fails(self):
         self.client.force_authenticate(user=self.user)
         payload = {
             "timezone": "America/Bogota",
@@ -1393,10 +1417,25 @@ class OperationScheduleApiTests(APITestCase):
             ],
         }
 
-        response = self.client.put(self.url, payload, format="json")
+        with patch(
+            "control_horarios.views.process_schedule_sync_job",
+            side_effect=lambda job: (
+                ScheduleSyncJob.objects.filter(id=job.id).update(
+                    status=ScheduleSyncJob.Status.FAILED,
+                    attempts=job.attempts + 1,
+                    last_error="AMI no disponible",
+                ),
+                OperationSchedule.objects.filter(id=job.schedule_id).update(
+                    sync_status=OperationSchedule.SyncStatus.FAILED,
+                    last_sync_error="AMI no disponible",
+                ),
+            ),
+        ):
+            response = self.client.put(self.url, payload, format="json")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["sync_status"], "pending")
+        self.assertEqual(response.data["sync_status"], "failed")
+        self.assertEqual(response.data["last_sync_error"], "AMI no disponible")
         self.assertEqual(OperationSchedule.objects.count(), 1)
         self.assertEqual(ScheduleSyncJob.objects.count(), 1)
 
@@ -1740,3 +1779,69 @@ class SessionAuthApiTests(APITestCase):
     def test_angular_dev_origins_are_trusted_for_csrf(self):
         self.assertIn("http://localhost:4200", settings.CSRF_TRUSTED_ORIGINS)
         self.assertIn("http://127.0.0.1:4200", settings.CSRF_TRUSTED_ORIGINS)
+
+
+class SuperadminOperationApiTests(APITestCase):
+    def setUp(self):
+        self.superuser = get_user_model().objects.create_superuser(
+            username="super",
+            password="test-pass",
+        )
+        self.tenant_admin = get_user_model().objects.create_user(
+            username="tenant-admin",
+            password="test-pass",
+        )
+        self.tenant = Tenant.objects.create(name="PAS", code="pas")
+        TenantMembership.objects.create(
+            tenant=self.tenant,
+            user=self.tenant_admin,
+            role=TenantMembership.Role.ADMIN,
+        )
+
+    def test_superuser_can_create_location(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        response = self.client.post(
+            reverse("admin-location-list-create"),
+            {
+                "tenant_id": self.tenant.id,
+                "name": "Callcenter Principal",
+                "code": "callcenter-principal",
+                "astdb_family": "callcenter_principal",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(CallCenterLocation.objects.count(), 1)
+        self.assertEqual(response.data["astdb_family"], "callcenter_principal")
+
+    def test_tenant_admin_cannot_use_superadmin_endpoints(self):
+        self.client.force_authenticate(user=self.tenant_admin)
+
+        response = self.client.get(reverse("admin-location-list-create"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_superuser_can_inspect_asterisk_through_api(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        with patch(
+            "control_horarios.views.inspect_asterisk",
+            return_value={
+                "contexts": ["callcenter_principal"],
+                "families": {
+                    "callcenter_principal": [
+                        {
+                            "day_of_week": "Mon",
+                            "ranges": [{"start": "08:00", "end": "12:00"}],
+                        }
+                    ]
+                },
+            },
+        ):
+            response = self.client.get(reverse("admin-asterisk-inspect"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["contexts"], ["callcenter_principal"])
+        self.assertEqual(response.data["families"][0]["astdb_family"], "callcenter_principal")

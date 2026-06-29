@@ -1,6 +1,13 @@
 from django.urls import path
 
 from .views import (
+    AdminAsteriskImportPreviewView,
+    AdminAsteriskImportView,
+    AdminAsteriskInspectView,
+    AdminLocationListCreateView,
+    AdminScheduleSyncJobListView,
+    AdminScheduleSyncJobProcessView,
+    AdminTenantListCreateView,
     CallCenterLocationListView,
     CurrentUserView,
     CsrfCookieView,
@@ -52,5 +59,40 @@ urlpatterns = [
         "locations/<int:location_id>/schedule-changes/",
         ScheduleChangeLogListView.as_view(),
         name="schedule-change-log-list",
+    ),
+    path(
+        "admin/tenants/",
+        AdminTenantListCreateView.as_view(),
+        name="admin-tenant-list-create",
+    ),
+    path(
+        "admin/locations/",
+        AdminLocationListCreateView.as_view(),
+        name="admin-location-list-create",
+    ),
+    path(
+        "admin/asterisk/inspect/",
+        AdminAsteriskInspectView.as_view(),
+        name="admin-asterisk-inspect",
+    ),
+    path(
+        "admin/asterisk/import-preview/",
+        AdminAsteriskImportPreviewView.as_view(),
+        name="admin-asterisk-import-preview",
+    ),
+    path(
+        "admin/asterisk/import/",
+        AdminAsteriskImportView.as_view(),
+        name="admin-asterisk-import",
+    ),
+    path(
+        "admin/sync-jobs/",
+        AdminScheduleSyncJobListView.as_view(),
+        name="admin-schedule-sync-job-list",
+    ),
+    path(
+        "admin/sync-jobs/process/",
+        AdminScheduleSyncJobProcessView.as_view(),
+        name="admin-schedule-sync-job-process",
     ),
 ]

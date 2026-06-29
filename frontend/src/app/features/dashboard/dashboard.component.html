@@ -29,14 +29,32 @@
 
     <div class="sidebar-body">
       <nav class="module-nav" aria-label="Módulos">
-        <button type="button">
+        <button
+          type="button"
+          [class.active]="activeModule() === 'dashboard'"
+          (click)="selectModule('dashboard')"
+        >
           <svg lucideLayoutDashboard [size]="18" aria-hidden="true"></svg>
           <span>Dashboard</span>
         </button>
-        <button type="button" class="active">
+        <button
+          type="button"
+          [class.active]="activeModule() === 'schedule'"
+          (click)="selectModule('schedule')"
+        >
           <svg lucideCalendarClock [size]="18" aria-hidden="true"></svg>
           <span>Horarios</span>
         </button>
+        @if (isSuperuser()) {
+          <button
+            type="button"
+            [class.active]="activeModule() === 'admin'"
+            (click)="selectModule('admin')"
+          >
+            <svg lucideWifi [size]="18" aria-hidden="true"></svg>
+            <span>Administración</span>
+          </button>
+        }
         <button type="button">
           <svg lucideUsersRound [size]="18" aria-hidden="true"></svg>
           <span>Agentes</span>
@@ -57,15 +75,284 @@
   <section class="workspace">
     <header class="topbar">
       <div>
-        <p>Horarios / {{ selectedLocation()?.tenant || 'Tenant' }}</p>
-        <h1>{{ selectedLocation()?.name || 'Control de horarios' }}</h1>
+        @if (activeModule() === 'admin') {
+          <p>Administración / Superadmin</p>
+          <h1>Operación del sistema</h1>
+        } @else if (activeModule() === 'dashboard') {
+          <p>Dashboard / {{ selectedLocation()?.tenant || 'Tenant' }}</p>
+          <h1>Resumen operativo</h1>
+        } @else {
+          <p>Horarios / {{ selectedLocation()?.tenant || 'Tenant' }}</p>
+          <h1>{{ selectedLocation()?.name || 'Control de horarios' }}</h1>
+        }
       </div>
       <button type="button" class="icon-button" (click)="refreshSelected()" title="Actualizar">
         <svg lucideRefreshCcw [size]="18" aria-hidden="true"></svg>
       </button>
     </header>
 
-    @if (loading()) {
+    @if (activeModule() === 'admin') {
+      <section class="admin-layout">
+        <div class="admin-main">
+          <section class="admin-panel">
+            <div class="section-heading">
+              <div>
+                <p>Clientes</p>
+                <h2>Crear tenant</h2>
+              </div>
+            </div>
+
+            <div class="admin-form two-columns">
+              <label>
+                Nombre
+                <input
+                  type="text"
+                  [ngModel]="tenantForm().name"
+                  (ngModelChange)="updateTenantForm('name', $event)"
+                  placeholder="Ej. PAS"
+                />
+              </label>
+              <label>
+                Código
+                <input
+                  type="text"
+                  [ngModel]="tenantForm().code"
+                  (ngModelChange)="updateTenantForm('code', $event)"
+                  placeholder="pas"
+                />
+              </label>
+              <button type="button" class="primary-light-button" (click)="createTenant()" [disabled]="adminActionLoading()">
+                <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                <span>Crear cliente</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="section-heading">
+              <div>
+                <p>Call centers</p>
+                <h2>Crear locación</h2>
+              </div>
+            </div>
+
+            <div class="admin-form location-form">
+              <label>
+                Cliente
+                <select
+                  [ngModel]="locationForm().tenant_id"
+                  (ngModelChange)="updateLocationForm('tenant_id', $event)"
+                >
+                  <option [ngValue]="0">Selecciona cliente</option>
+                  @for (tenant of adminTenants(); track tenant.id) {
+                    <option [ngValue]="tenant.id">{{ tenant.name }} / {{ tenant.code }}</option>
+                  }
+                </select>
+              </label>
+              <label>
+                Nombre visible
+                <input
+                  type="text"
+                  [ngModel]="locationForm().name"
+                  (ngModelChange)="updateLocationForm('name', $event)"
+                  placeholder="Callcenter Principal"
+                />
+              </label>
+              <label>
+                Código interno
+                <input
+                  type="text"
+                  [ngModel]="locationForm().code"
+                  (ngModelChange)="updateLocationForm('code', $event)"
+                  placeholder="callcenter-principal"
+                />
+              </label>
+              <label>
+                Familia AstDB
+                <input
+                  type="text"
+                  [ngModel]="locationForm().astdb_family"
+                  (ngModelChange)="updateLocationForm('astdb_family', $event)"
+                  placeholder="callcenter_principal"
+                />
+              </label>
+              <button type="button" class="primary-light-button" (click)="createLocation()" [disabled]="adminActionLoading()">
+                <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                <span>Crear call center</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="section-heading">
+              <div>
+                <p>Asterisk</p>
+                <h2>Inspeccionar e importar AstDB</h2>
+              </div>
+              <button type="button" class="secondary-button" (click)="inspectAsterisk()" [disabled]="adminActionLoading()">
+                Revisar Asterisk
+              </button>
+            </div>
+
+            <div class="admin-form import-form">
+              <label>
+                Código tenant destino
+                <input
+                  type="text"
+                  [ngModel]="importForm().tenant_code"
+                  (ngModelChange)="updateImportForm('tenant_code', $event)"
+                  placeholder="pas"
+                />
+              </label>
+              <label>
+                Nombre tenant
+                <input
+                  type="text"
+                  [ngModel]="importForm().tenant_name"
+                  (ngModelChange)="updateImportForm('tenant_name', $event)"
+                  placeholder="PAS"
+                />
+              </label>
+              <label>
+                Familia específica
+                <input
+                  type="text"
+                  [ngModel]="importForm().family"
+                  (ngModelChange)="updateImportForm('family', $event)"
+                  placeholder="Opcional: callcenter_principal"
+                />
+              </label>
+              <button type="button" class="secondary-button" (click)="previewAstdbImport()" [disabled]="adminActionLoading()">
+                Vista previa
+              </button>
+              <button type="button" class="primary-light-button" (click)="importAstdbSchedules()" [disabled]="adminActionLoading()">
+                Importar
+              </button>
+            </div>
+
+            @if (asteriskInspect()) {
+              <div class="admin-result-grid">
+                <article class="admin-result">
+                  <strong>Contextos dialplan</strong>
+                  <span>{{ asteriskInspect()?.contexts?.length || 0 }} detectado(s)</span>
+                  <div class="chip-list">
+                    @for (context of asteriskInspect()?.contexts || []; track context) {
+                      <code>{{ context }}</code>
+                    }
+                  </div>
+                </article>
+                <article class="admin-result">
+                  <strong>Familias con horario</strong>
+                  <span>{{ asteriskInspect()?.families?.length || 0 }} detectada(s)</span>
+                  <div class="chip-list">
+                    @for (family of asteriskInspect()?.families || []; track family.astdb_family) {
+                      <code>{{ family.astdb_family }}: {{ formatFamilyDays(family) }}</code>
+                    }
+                  </div>
+                </article>
+              </div>
+            }
+
+            @if (importPreview()) {
+              <div class="preview-panel">
+                <div class="preview-head">
+                  <strong>Importación propuesta</strong>
+                  <span>{{ importPreview()?.locations?.length || 0 }} call center(s)</span>
+                </div>
+                <div class="preview-list">
+                  @for (location of importPreview()?.locations || []; track location.astdb_family) {
+                    <article class="preview-item">
+                      <span class="preview-action">{{ location.exists ? 'Existe' : 'Nuevo' }}</span>
+                      <code>{{ location.astdb_family }}</code>
+                      <strong>{{ formatFamilyDays(location) }}</strong>
+                    </article>
+                  }
+                </div>
+              </div>
+            }
+          </section>
+        </div>
+
+        <aside class="admin-side">
+          <section class="admin-panel">
+            <div class="section-heading compact">
+              <div>
+                <p>Sincronización</p>
+                <h2>Jobs AstDB</h2>
+              </div>
+            </div>
+            <div class="mini-metrics">
+              <div>
+                <span>Pendientes</span>
+                <strong>{{ pendingJobsCount() }}</strong>
+              </div>
+              <div>
+                <span>Fallidos</span>
+                <strong>{{ failedJobsCount() }}</strong>
+              </div>
+            </div>
+            <div class="side-actions">
+              <button type="button" class="primary-light-button" (click)="processSyncJobs(false)" [disabled]="adminActionLoading()">
+                Procesar
+              </button>
+              <button type="button" class="secondary-button" (click)="processSyncJobs(true)" [disabled]="adminActionLoading()">
+                Reintentar fallidos
+              </button>
+            </div>
+            <div class="job-list">
+              @for (job of syncJobs(); track job.id) {
+                <article class="job-item" [class.failed]="job.status === 'failed'">
+                  <strong>#{{ job.id }} {{ job.location }}</strong>
+                  <span>{{ job.status }} / intentos: {{ job.attempts }}</span>
+                  @if (job.last_error) {
+                    <small>{{ job.last_error }}</small>
+                  }
+                </article>
+              } @empty {
+                <p class="muted">No hay jobs registrados</p>
+              }
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="section-heading compact">
+              <div>
+                <p>Registrados</p>
+                <h2>Call centers</h2>
+              </div>
+            </div>
+            <div class="admin-location-list">
+              @for (location of adminLocations(); track location.id) {
+                <article>
+                  <strong>{{ location.name }}</strong>
+                  <span>{{ location.tenant.code }} / {{ location.astdb_family }}</span>
+                </article>
+              } @empty {
+                <p class="muted">Sin call centers creados</p>
+              }
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <div class="admin-feedback" aria-live="polite">
+        @if (adminStatusMessage()) {
+          <p class="success-message">
+            <svg lucideCheckCircle2 [size]="16" aria-hidden="true"></svg>
+            {{ adminStatusMessage() }}
+          </p>
+        }
+
+        @if (adminErrorMessage()) {
+          <p class="error-message">
+            <svg lucideAlertCircle [size]="16" aria-hidden="true"></svg>
+            {{ adminErrorMessage() }}
+          </p>
+        }
+      </div>
+    } @else if (activeModule() === 'dashboard') {
+      <div class="state-band">Dashboard general en construcción. Usa Horarios o Administración para operar el MVP.</div>
+    } @else if (loading()) {
       <div class="state-band">Cargando sesión</div>
     } @else if (locations().length === 0) {
       <div class="state-band">No hay call centers disponibles</div>

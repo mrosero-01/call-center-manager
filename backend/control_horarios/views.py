@@ -3,14 +3,22 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from django.utils.decorators import method_decorator
 
+from .application.asterisk_admin import (
+    build_astdb_import_preview,
+    import_astdb_schedules,
+    inspect_asterisk,
+)
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
+from .application.sync_jobs import process_schedule_sync_jobs
+from .application.sync_jobs import process_schedule_sync_job
 from .application.use_cases import UpdateOperationSchedule
+from .infrastructure.asterisk.ami_client import AmiClientError
 from .infrastructure.asterisk.schedule_formatter import (
     ASTDB_SCHEDULE_FAMILY,
     build_schedule_astdb_key,
@@ -18,18 +26,29 @@ from .infrastructure.asterisk.schedule_formatter import (
     format_ranges_for_astdb,
 )
 from .infrastructure.django.repositories import DjangoScheduleRepository
-from .models import CallCenterLocation, ScheduleChangeLog, TenantMembership
+from .models import (
+    CallCenterLocation,
+    ScheduleChangeLog,
+    ScheduleSyncJob,
+    Tenant,
+    TenantMembership,
+)
 from .permissions import (
     get_manageable_locations,
     user_can_manage_location,
     user_can_view_location,
 )
 from .serializers import (
+    AdminCallCenterLocationSerializer,
+    AdminTenantSerializer,
+    AsteriskImportRequestSerializer,
     CallCenterLocationSerializer,
     CurrentUserSerializer,
     LoginSerializer,
     OperationSchedulePreviewSerializer,
+    ProcessSyncJobsSerializer,
     ScheduleChangeLogSerializer,
+    ScheduleSyncJobSerializer,
     UpdateOperationScheduleSerializer,
 )
 
@@ -165,6 +184,18 @@ class OperationScheduleUpdateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        sync_job_id = result.pop("sync_job_id", None)
+        if sync_job_id:
+            sync_job = ScheduleSyncJob.objects.select_related(
+                "location",
+                "schedule",
+            ).get(id=sync_job_id)
+            process_schedule_sync_job(sync_job)
+            result = DjangoScheduleRepository().get_schedule_snapshot(
+                tenant_id=location.tenant_id,
+                location_id=location.id,
+            )
+
         return Response(result, status=status.HTTP_200_OK)
 
     def _build_command(self, user_id, tenant_id, location_id, validated_data):
@@ -252,6 +283,162 @@ class ScheduleChangeLogListView(APIView):
         serializer = ScheduleChangeLogSerializer(change_logs, many=True)
 
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class IsSuperUser(BasePermission):
+    message = "Solo un superadmin puede usar esta funcion."
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
+class SuperuserOnlyMixin:
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminTenantListCreateView(SuperuserOnlyMixin, APIView):
+    def get(self, request):
+        tenants = Tenant.objects.all()
+        serializer = AdminTenantSerializer(tenants, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = AdminTenantSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tenant = serializer.save()
+
+        return Response(
+            AdminTenantSerializer(tenant).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminLocationListCreateView(SuperuserOnlyMixin, APIView):
+    def get(self, request):
+        locations = CallCenterLocation.objects.select_related("tenant").all()
+        serializer = AdminCallCenterLocationSerializer(locations, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = AdminCallCenterLocationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        location = serializer.save()
+
+        return Response(
+            AdminCallCenterLocationSerializer(location).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminAsteriskInspectView(SuperuserOnlyMixin, APIView):
+    def get(self, request):
+        try:
+            result = inspect_asterisk()
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {"detail": f"No se pudo inspeccionar Asterisk: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "contexts": result["contexts"],
+                "families": [
+                    {
+                        "astdb_family": astdb_family,
+                        "days": days,
+                    }
+                    for astdb_family, days in result["families"].items()
+                ],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminAsteriskImportPreviewView(SuperuserOnlyMixin, APIView):
+    def post(self, request):
+        serializer = AsteriskImportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            preview = build_astdb_import_preview(**serializer.validated_data)
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {"detail": f"No se pudo leer AstDB: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(preview, status=status.HTTP_200_OK)
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminAsteriskImportView(SuperuserOnlyMixin, APIView):
+    def post(self, request):
+        serializer = AsteriskImportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = import_astdb_schedules(**serializer.validated_data)
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {"detail": f"No se pudo importar desde AstDB: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "tenant": AdminTenantSerializer(result["tenant"]).data,
+                "locations": AdminCallCenterLocationSerializer(
+                    result["locations"],
+                    many=True,
+                ).data,
+                "imported_days": result["imported_days"],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminScheduleSyncJobListView(SuperuserOnlyMixin, APIView):
+    def get(self, request):
+        jobs = ScheduleSyncJob.objects.select_related(
+            "tenant",
+            "location",
+            "requested_by",
+        ).order_by("-created_at")[:100]
+        serializer = ScheduleSyncJobSerializer(jobs, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminScheduleSyncJobProcessView(SuperuserOnlyMixin, APIView):
+    def post(self, request):
+        serializer = ProcessSyncJobsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = process_schedule_sync_jobs(**serializer.validated_data)
+
+        return Response(
+            {
+                "processed": result["processed"],
+                "synced": result["synced"],
+                "failed": result["failed"],
+                "failed_jobs": [
+                    {
+                        "id": failed_job["job"].id,
+                        "error": failed_job["error"],
+                    }
+                    for failed_job in result["failed_jobs"]
+                ],
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 def _serialize_current_user(user):

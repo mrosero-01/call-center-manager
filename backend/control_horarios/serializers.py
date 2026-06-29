@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .application.schedule_rules import normalize_ranges
-from .models import ScheduleChangeLog, Tenant, TenantMembership
+from .models import ScheduleChangeLog, ScheduleSyncJob, Tenant, TenantMembership
 from .models import OperationScheduleDay
 from .models import CallCenterLocation
 
@@ -19,6 +19,25 @@ class TenantSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = ("id", "name", "code")
+
+
+class AdminTenantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tenant
+        fields = ("id", "name", "code")
+
+
+class AdminCallCenterLocationSerializer(serializers.ModelSerializer):
+    tenant = TenantSerializer(read_only=True)
+    tenant_id = serializers.PrimaryKeyRelatedField(
+        queryset=Tenant.objects.all(),
+        source="tenant",
+        write_only=True,
+    )
+
+    class Meta:
+        model = CallCenterLocation
+        fields = ("id", "tenant", "tenant_id", "name", "code", "astdb_family")
 
 
 class TenantMembershipSerializer(serializers.ModelSerializer):
@@ -113,3 +132,48 @@ class OperationSchedulePreviewSerializer(serializers.Serializer):
 
     def validate_days(self, days):
         return UpdateOperationScheduleSerializer().validate_days(days)
+
+
+class AsteriskImportRequestSerializer(serializers.Serializer):
+    tenant_code = serializers.SlugField(max_length=100)
+    tenant_name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+    )
+    family = serializers.SlugField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+    )
+
+
+class ProcessSyncJobsSerializer(serializers.Serializer):
+    limit = serializers.IntegerField(min_value=1, max_value=100, default=20)
+    retry_failed = serializers.BooleanField(default=False)
+    max_attempts = serializers.IntegerField(min_value=1, max_value=20, default=5)
+
+
+class ScheduleSyncJobSerializer(serializers.ModelSerializer):
+    tenant = serializers.CharField(source="tenant.code")
+    location = serializers.CharField(source="location.name")
+    astdb_family = serializers.CharField(source="location.astdb_family")
+    requested_by = serializers.CharField(source="requested_by.username", allow_null=True)
+
+    class Meta:
+        model = ScheduleSyncJob
+        fields = (
+            "id",
+            "tenant",
+            "location",
+            "astdb_family",
+            "requested_by",
+            "reason",
+            "status",
+            "attempts",
+            "last_error",
+            "synced_at",
+            "created_at",
+            "updated_at",
+        )

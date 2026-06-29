@@ -294,13 +294,15 @@
 
 .schedule-panel,
 .audit-panel,
+.admin-panel,
 .state-band {
   border: 1px solid #dbe2ec;
   background: #ffffff;
 }
 
 .schedule-panel,
-.audit-panel {
+.audit-panel,
+.admin-panel {
   padding: 16px;
 }
 
@@ -556,7 +558,8 @@
 }
 
 .range-item label,
-.save-dock label {
+.save-dock label,
+.admin-form label {
   display: grid;
   gap: 5px;
   color: #526174;
@@ -565,7 +568,9 @@
 }
 
 .range-item input,
-.save-dock input {
+.save-dock input,
+.admin-form input,
+.admin-form select {
   height: 34px;
   min-width: 0;
   border: 1px solid #cbd5e1;
@@ -584,7 +589,9 @@
 }
 
 .range-item input:focus,
-.save-dock input:focus {
+.save-dock input:focus,
+.admin-form input:focus,
+.admin-form select:focus {
   border-color: #0f766e;
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.13);
   outline: none;
@@ -729,6 +736,169 @@
   color: #526174;
 }
 
+.admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 16px;
+  align-items: start;
+}
+
+.admin-main,
+.admin-side {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-side {
+  position: sticky;
+  top: 24px;
+}
+
+.admin-panel {
+  border-radius: 8px;
+}
+
+.admin-form {
+  display: grid;
+  gap: 10px;
+  align-items: end;
+}
+
+.admin-form.two-columns {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.admin-form.location-form {
+  grid-template-columns: 190px repeat(3, minmax(0, 1fr)) auto;
+}
+
+.admin-form.import-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
+}
+
+.admin-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.admin-result,
+.mini-metrics > div,
+.job-item,
+.admin-location-list article {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fbfcfe;
+}
+
+.admin-result {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.admin-result strong,
+.job-item strong,
+.admin-location-list strong {
+  color: #172033;
+}
+
+.admin-result span,
+.job-item span,
+.job-item small,
+.admin-location-list span {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 118px;
+  overflow-y: auto;
+}
+
+.chip-list code {
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #1f476f;
+  background: #eef5ff;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mini-metrics > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.mini-metrics span {
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
+.mini-metrics strong {
+  color: #172033;
+  font-size: 1.2rem;
+}
+
+.side-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.job-list,
+.admin-location-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.job-item,
+.admin-location-list article {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.job-item.failed {
+  border-color: #fecdca;
+  background: #fff7f5;
+}
+
+.job-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-feedback {
+  position: fixed;
+  right: 22px;
+  bottom: 18px;
+  z-index: 30;
+  width: min(460px, calc(100vw - 44px));
+  display: grid;
+  gap: 8px;
+}
+
 @media (max-width: 1220px) {
   .status-grid,
   .rule-list {
@@ -739,9 +909,21 @@
     grid-template-columns: 1fr;
   }
 
+  .admin-layout,
+  .admin-form.two-columns,
+  .admin-form.location-form,
+  .admin-form.import-form,
+  .admin-result-grid {
+    grid-template-columns: 1fr;
+  }
+
   .audit-panel {
     position: static;
     max-height: none;
+  }
+
+  .admin-side {
+    position: static;
   }
 }
 

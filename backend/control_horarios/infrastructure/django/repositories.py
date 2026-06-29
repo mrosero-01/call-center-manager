@@ -82,7 +82,7 @@ class DjangoScheduleRepository:
             before_value=before_value,
             after_value=after_value,
         )
-        self.create_sync_job(
+        sync_job = self.create_sync_job(
             tenant_id=tenant_id,
             location_id=location_id,
             changed_by_id=changed_by_id,
@@ -91,6 +91,7 @@ class DjangoScheduleRepository:
             days=days,
             change_log_id=change_log.id,
         )
+        after_value["sync_job_id"] = sync_job.id
 
         return after_value
 
