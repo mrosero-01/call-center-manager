@@ -98,10 +98,12 @@ def inspect_asterisk_inventory(client=None):
 
 
 def compare_location_schedule_with_astdb(location, client=None):
+    client = client or build_ami_client()
     asterisk_rows = read_astdb_schedule_rows(
         family=location.astdb_family,
         client=client,
     )
+    contexts = _read_dialplan_contexts(client)
     asterisk_days = {
         row["day_of_week"]: row["ranges"]
         for row in asterisk_rows
@@ -124,6 +126,8 @@ def compare_location_schedule_with_astdb(location, client=None):
 
     return {
         "astdb_family": location.astdb_family,
+        "has_context": location.astdb_family in contexts,
+        "context_name": location.astdb_family,
         "in_sync": len(differences) == 0,
         "django_days": django_days,
         "asterisk_days": asterisk_days,
@@ -374,6 +378,11 @@ def _first_meaningful_output_line(output):
             return normalized
 
     return ""
+
+
+def _read_dialplan_contexts(client):
+    output = client.command("dialplan show")
+    return set(DIALPLAN_CONTEXT_PATTERN.findall(output))
 
 
 def _serialize_location(location):

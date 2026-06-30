@@ -158,6 +158,8 @@ export interface ScheduleComparisonDifference {
 
 export interface ScheduleAsteriskComparison {
   astdb_family: string;
+  has_context: boolean;
+  context_name: string;
   in_sync: boolean;
   django_days: Partial<Record<Weekday, TimeRange[]>>;
   asterisk_days: Partial<Record<Weekday, TimeRange[]>>;

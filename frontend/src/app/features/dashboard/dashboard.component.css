@@ -481,6 +481,19 @@
   font-weight: 800;
 }
 
+.comparison-context {
+  border-radius: 6px;
+  padding: 7px 8px;
+  color: #116149;
+  background: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.comparison-context.missing {
+  color: #912018;
+}
+
 .comparison-list {
   display: grid;
   gap: 6px;
@@ -666,6 +679,12 @@
   background: #ffffff;
 }
 
+.field-warning {
+  color: #b42318;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .range-item input {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 0.9rem;
@@ -734,6 +753,26 @@
 .save-summary.pending {
   color: #075e56;
   background: #dff7ed;
+}
+
+.pending-write-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  max-height: 86px;
+  overflow-y: auto;
+  border: 1px solid #dbe2ec;
+  border-radius: 6px;
+  padding: 7px;
+  background: #fbfcfe;
+}
+
+.pending-write-list code {
+  overflow: hidden;
+  color: #334155;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .save-feedback:empty {

@@ -249,17 +249,32 @@
                         type="text"
                         [ngModel]="locationForm().code"
                         (ngModelChange)="updateLocationForm('code', $event)"
-                        placeholder="callcenter-principal"
+                        placeholder="callcenter_principal"
                       />
                     </label>
                     <label>
                       Familia AstDB
-                      <input
-                        type="text"
-                        [ngModel]="locationForm().astdb_family"
-                        (ngModelChange)="updateLocationForm('astdb_family', $event)"
-                        placeholder="callcenter_principal"
-                      />
+                      @if (inventoryFamilyNames().length > 0) {
+                        <select
+                          [ngModel]="locationForm().astdb_family"
+                          (ngModelChange)="updateLocationForm('astdb_family', $event)"
+                        >
+                          <option value="">Selecciona familia detectada</option>
+                          @for (family of inventoryFamilyNames(); track family) {
+                            <option [value]="family">{{ family }}</option>
+                          }
+                        </select>
+                      } @else {
+                        <input
+                          type="text"
+                          [ngModel]="locationForm().astdb_family"
+                          (ngModelChange)="updateLocationForm('astdb_family', $event)"
+                          placeholder="callcenter_principal"
+                        />
+                      }
+                      @if (!locationFamilyExistsInInventory()) {
+                        <small class="field-warning">No aparece en el inventario de Asterisk.</small>
+                      }
                     </label>
                     <button type="button" class="primary-light-button" (click)="createLocation()" [disabled]="adminActionLoading()">
                       <svg lucidePlus [size]="16" aria-hidden="true"></svg>
@@ -293,6 +308,7 @@
                         <th>Días</th>
                         <th>Estado Django</th>
                         <th>Acción</th>
+                        <th>Manual</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -321,6 +337,11 @@
                             }
                           </td>
                           <td><strong class="action-label">{{ suggestedActionLabel(item.suggested_action) }}</strong></td>
+                          <td>
+                            <button type="button" class="text-button compact-button" (click)="useInventoryFamily(item)">
+                              Usar
+                            </button>
+                          </td>
                         </tr>
                       }
                     </tbody>
@@ -637,6 +658,22 @@
             <span>Última sincronización: {{ lastSyncedAt() ? (lastSyncedAt() | date: 'short') : 'Sin registro' }}</span>
           </div>
 
+          @if (missingDialplanContext()) {
+            <div class="sync-warning">
+              <strong>Contexto no detectado</strong>
+              <span>
+                La familia {{ selectedLocation()?.astdb_family }} tiene horario, pero no se detectó un contexto con ese nombre en Asterisk. El horario puede guardarse, pero no tendrá efecto si el dialplan no lo consulta.
+              </span>
+            </div>
+          }
+
+          @if (hasAsteriskDrift()) {
+            <div class="sync-warning">
+              <strong>Asterisk tiene valores distintos</strong>
+              <span>Lee desde Asterisk antes de modificar si quieres conservar el horario real del servidor.</span>
+            </div>
+          }
+
           <div class="rule-toolbar">
             <button type="button" class="secondary-button" (click)="applyWorkweekTemplate()" [disabled]="!canManageSchedule()">
               Semana laboral
@@ -692,6 +729,10 @@
               <div class="comparison-head">
                 <strong>{{ asteriskComparison()?.in_sync ? 'Django y Asterisk están alineados' : 'Diferencias detectadas' }}</strong>
                 <span>{{ asteriskComparison()?.differences?.length || 0 }} diferencia(s)</span>
+              </div>
+              <div class="comparison-context" [class.missing]="!asteriskComparison()?.has_context">
+                Contexto {{ asteriskComparison()?.context_name }}:
+                {{ asteriskComparison()?.has_context ? 'detectado en dialplan' : 'no detectado en dialplan' }}
               </div>
               @if (!asteriskComparison()?.in_sync) {
                 <div class="comparison-list">
@@ -837,6 +878,13 @@
         <div class="save-summary" [class.pending]="hasScheduleChanges()">
           {{ saveSummary() }}
         </div>
+        @if (pendingAstdbWriteLines().length > 0) {
+          <div class="pending-write-list">
+            @for (line of pendingAstdbWriteLines(); track line) {
+              <code>{{ line }}</code>
+            }
+          </div>
+        }
         <label>
           Motivo del cambio obligatorio
           <input

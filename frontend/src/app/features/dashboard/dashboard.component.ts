@@ -234,6 +234,30 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     return `Se modificará: ${labels.join(', ')}.`;
   });
+  readonly pendingAstdbWriteLines = computed(() => {
+    const location = this.selectedLocation();
+
+    if (!location) {
+      return [];
+    }
+
+    return this.daysForUpdate()
+      .filter(
+        ({ day_of_week, ranges }) => this.rangesKey(ranges) !== this.rangesKey(this.originalScheduleDays()[day_of_week])
+      )
+      .map(({ day_of_week, ranges }) => {
+        const value = this.formatRanges(ranges) || 'Cerrado';
+        return `/horario/${location.astdb_family}/${day_of_week} = ${value}`;
+      });
+  });
+  readonly hasAsteriskDrift = computed(() => {
+    const comparison = this.asteriskComparison();
+    return !!comparison && !comparison.in_sync;
+  });
+  readonly missingDialplanContext = computed(() => {
+    const comparison = this.asteriskComparison();
+    return !!comparison && !comparison.has_context;
+  });
   readonly isSuperuser = computed(() => this.user()?.is_superuser ?? false);
   readonly pendingJobsCount = computed(() =>
     this.syncJobs().filter((job) => job.status === 'pending').length
@@ -269,6 +293,21 @@ export class DashboardComponent implements OnInit, OnDestroy {
   readonly previewRestoredCount = computed(
     () => this.importPreview()?.locations.filter((location) => location.exists && !location.is_active).length ?? 0
   );
+  readonly inventoryFamilyNames = computed(() =>
+    this.asteriskInventory()
+      .filter((item) => item.has_context || item.has_astdb_schedule)
+      .map((item) => item.name)
+      .sort((first, second) => first.localeCompare(second))
+  );
+  readonly locationFamilyExistsInInventory = computed(() => {
+    const astdbFamily = this.locationForm().astdb_family.trim();
+
+    if (!astdbFamily || this.inventoryFamilyNames().length === 0) {
+      return true;
+    }
+
+    return this.inventoryFamilyNames().includes(astdbFamily);
+  });
   readonly canManageSchedule = computed(() => {
     const currentUser = this.user();
     const location = this.selectedLocation();
@@ -420,6 +459,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.clearAdminMessages();
   }
 
+  useInventoryFamily(item: AsteriskInventoryItem): void {
+    this.locationForm.update((form) => ({
+      ...form,
+      name: form.name || this.humanizeIdentifier(item.name),
+      code: form.code || item.name,
+      astdb_family: item.name
+    }));
+    this.clearAdminMessages();
+  }
+
   updateImportForm(field: 'tenant_code' | 'tenant_name' | 'family', value: string): void {
     this.importForm.update((form) => ({ ...form, [field]: value }));
     this.importPreview.set(null);
@@ -506,6 +555,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     if (!payload.tenant_id || !payload.name || !payload.code || !payload.astdb_family) {
       this.adminErrorMessage.set('Cliente, nombre, código y familia AstDB son obligatorios.');
+      return;
+    }
+
+    if (!this.locationFamilyExistsInInventory()) {
+      this.adminErrorMessage.set(
+        'La familia AstDB no aparece en el inventario de Asterisk. Usa Revisar servidor y selecciona una familia detectada.'
+      );
       return;
     }
 
@@ -1068,6 +1124,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const confirmed = window.confirm(this.buildSaveConfirmation(location));
+
+    if (!confirmed) {
+      return;
+    }
+
     this.saving.set(true);
     this.errorMessage.set('');
     this.statusMessage.set('');
@@ -1421,6 +1483,39 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
 
     return payload;
+  }
+
+  private buildSaveConfirmation(location: CallCenterLocation): string {
+    const lines = this.pendingAstdbWriteLines();
+    const comparison = this.asteriskComparison();
+    const warnings: string[] = [];
+
+    if (comparison && !comparison.has_context) {
+      warnings.push(`No se detectó el contexto [${location.astdb_family}] en el dialplan.`);
+    }
+
+    if (comparison && !comparison.in_sync) {
+      warnings.push('Django y Asterisk tienen diferencias. Si no has leído desde Asterisk, podrías sobrescribir valores reales.');
+    }
+
+    return [
+      `Vas a guardar cambios en ${location.name}.`,
+      `Familia AstDB: ${location.astdb_family}`,
+      '',
+      'Rutas que se enviarán:',
+      ...(lines.length > 0 ? lines : ['Sin rutas detectadas.']),
+      ...(warnings.length > 0 ? ['', 'Advertencias:', ...warnings] : []),
+      '',
+      '¿Continuar?'
+    ].join('\n');
+  }
+
+  private humanizeIdentifier(value: string): string {
+    return value
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
   private messageForSavedSchedule(snapshot: ScheduleSnapshot): string {
