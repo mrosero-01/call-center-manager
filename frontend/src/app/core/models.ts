@@ -22,6 +22,7 @@ export interface CallCenterLocation {
   code: string;
   astdb_family: string;
   tenant: string;
+  is_active: boolean;
 }
 
 export interface TimeRange {
@@ -42,12 +43,14 @@ export interface ScheduleSnapshot {
   sync_status?: 'pending' | 'synced' | 'failed';
   last_sync_error?: string;
   last_synced_at?: string | null;
+  updated_at?: string | null;
   days: Partial<Record<Weekday, TimeRange[]>>;
 }
 
 export interface ScheduleUpdatePayload {
   timezone: string;
   reason: string;
+  expected_updated_at?: string | null;
   days: ScheduleDayPayload[];
 }
 
@@ -87,6 +90,7 @@ export interface AdminCallCenterLocation {
   code: string;
   astdb_family: string;
   tenant: Tenant;
+  is_active: boolean;
 }
 
 export interface CreateTenantPayload {
@@ -105,6 +109,7 @@ export interface AsteriskFamilyPreview {
   astdb_family: string;
   days: ScheduleDayPayload[];
   exists?: boolean;
+  is_active?: boolean;
   current_tenant?: string;
   name?: string;
 }
@@ -114,10 +119,62 @@ export interface AsteriskInspectResult {
   families: AsteriskFamilyPreview[];
 }
 
+export interface AsteriskInventoryLocation {
+  id: number;
+  name: string;
+  code: string;
+  astdb_family: string;
+  tenant: string;
+  is_active: boolean;
+}
+
+export interface AsteriskInventoryItem {
+  name: string;
+  has_context: boolean;
+  has_astdb_schedule: boolean;
+  days: ScheduleDayPayload[];
+  django_location: AsteriskInventoryLocation | null;
+  suggested_action: 'import' | 'update' | 'restore' | 'created' | 'create';
+}
+
+export interface AsteriskInventoryResult {
+  items: AsteriskInventoryItem[];
+}
+
+export interface AsteriskHealth {
+  ok: boolean;
+  host?: string;
+  port?: number;
+  latency_ms?: number;
+  message?: string;
+  detail?: string;
+}
+
+export interface ScheduleComparisonDifference {
+  day_of_week: Weekday;
+  django_ranges: TimeRange[];
+  asterisk_ranges: TimeRange[];
+}
+
+export interface ScheduleAsteriskComparison {
+  astdb_family: string;
+  in_sync: boolean;
+  django_days: Partial<Record<Weekday, TimeRange[]>>;
+  asterisk_days: Partial<Record<Weekday, TimeRange[]>>;
+  differences: ScheduleComparisonDifference[];
+  checked_at: string;
+}
+
 export interface AsteriskImportRequest {
   tenant_code: string;
   tenant_name?: string;
   family?: string;
+}
+
+export interface AsteriskImportSelectedRequest {
+  tenant_code: string;
+  tenant_name?: string;
+  families: string[];
 }
 
 export interface AsteriskImportPreview {
@@ -132,6 +189,9 @@ export interface AsteriskImportResult {
   tenant: Tenant;
   locations: AdminCallCenterLocation[];
   imported_days: number;
+  created_count: number;
+  updated_count: number;
+  restored_count: number;
 }
 
 export interface ScheduleSyncJob {

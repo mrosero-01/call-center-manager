@@ -37,7 +37,7 @@ class AdminCallCenterLocationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CallCenterLocation
-        fields = ("id", "tenant", "tenant_id", "name", "code", "astdb_family")
+        fields = ("id", "tenant", "tenant_id", "name", "code", "astdb_family", "is_active")
 
 
 class TenantMembershipSerializer(serializers.ModelSerializer):
@@ -60,7 +60,7 @@ class CallCenterLocationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CallCenterLocation
-        fields = ("id", "name", "code", "astdb_family", "tenant")
+        fields = ("id", "name", "code", "astdb_family", "tenant", "is_active")
 
 
 class ScheduleChangeLogSerializer(serializers.ModelSerializer):
@@ -102,6 +102,7 @@ class ScheduleDaySerializer(serializers.Serializer):
 
 class UpdateOperationScheduleSerializer(serializers.Serializer):
     timezone = serializers.CharField(default="America/Bogota")
+    expected_updated_at = serializers.DateTimeField(required=False, allow_null=True)
     reason = serializers.CharField(
         allow_blank=False,
         max_length=250,
@@ -146,6 +147,21 @@ class AsteriskImportRequestSerializer(serializers.Serializer):
         max_length=100,
         required=False,
         allow_blank=True,
+    )
+
+
+class AsteriskImportSelectedRequestSerializer(serializers.Serializer):
+    tenant_code = serializers.SlugField(max_length=100)
+    tenant_name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+    )
+    families = serializers.ListField(
+        child=serializers.SlugField(max_length=100),
+        allow_empty=False,
+        max_length=100,
     )
 
 

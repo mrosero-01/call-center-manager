@@ -11,8 +11,14 @@ from django.utils.decorators import method_decorator
 
 from .application.asterisk_admin import (
     build_astdb_import_preview,
+    build_selected_astdb_import_preview,
+    check_asterisk_health,
+    compare_location_schedule_with_astdb,
     import_astdb_schedules,
+    import_selected_astdb_schedules,
     inspect_asterisk,
+    inspect_asterisk_inventory,
+    refresh_location_schedule_from_astdb,
 )
 from .application.commands import ScheduleDayInput, UpdateOperationScheduleCommand
 from .application.sync_jobs import process_schedule_sync_jobs
@@ -28,6 +34,7 @@ from .infrastructure.asterisk.schedule_formatter import (
 from .infrastructure.django.repositories import DjangoScheduleRepository
 from .models import (
     CallCenterLocation,
+    OperationSchedule,
     ScheduleChangeLog,
     ScheduleSyncJob,
     Tenant,
@@ -41,6 +48,7 @@ from .permissions import (
 from .serializers import (
     AdminCallCenterLocationSerializer,
     AdminTenantSerializer,
+    AsteriskImportSelectedRequestSerializer,
     AsteriskImportRequestSerializer,
     CallCenterLocationSerializer,
     CurrentUserSerializer,
@@ -149,6 +157,7 @@ class OperationScheduleUpdateView(APIView):
                 "sync_status": snapshot.get("sync_status"),
                 "last_sync_error": snapshot.get("last_sync_error", ""),
                 "last_synced_at": snapshot.get("last_synced_at"),
+                "updated_at": snapshot.get("updated_at"),
                 "days": snapshot["days"],
             },
             status=status.HTTP_200_OK,
@@ -165,6 +174,13 @@ class OperationScheduleUpdateView(APIView):
 
         serializer = UpdateOperationScheduleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        conflict_response = self._validate_expected_version(
+            location=location,
+            expected_updated_at=serializer.validated_data.get("expected_updated_at"),
+        )
+
+        if conflict_response:
+            return conflict_response
 
         command = self._build_command(
             user_id=request.user.id,
@@ -197,6 +213,26 @@ class OperationScheduleUpdateView(APIView):
             )
 
         return Response(result, status=status.HTTP_200_OK)
+
+    def _validate_expected_version(self, location, expected_updated_at):
+        if expected_updated_at is None:
+            return None
+
+        try:
+            schedule = OperationSchedule.objects.get(location=location)
+        except OperationSchedule.DoesNotExist:
+            return None
+
+        if schedule.updated_at == expected_updated_at:
+            return None
+
+        return Response(
+            {
+                "detail": "Este horario fue modificado por otra sesion. Refresca antes de guardar.",
+                "current_updated_at": schedule.updated_at.isoformat(),
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
 
     def _build_command(self, user_id, tenant_id, location_id, validated_data):
         return UpdateOperationScheduleCommand(
@@ -262,6 +298,70 @@ class OperationSchedulePreviewView(APIView):
             action["value"] = ""
 
         return action
+
+
+@method_decorator(never_cache, name="dispatch")
+class OperationScheduleRefreshFromAsteriskView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, location_id):
+        location = get_object_or_404(CallCenterLocation, id=location_id)
+
+        if not user_can_manage_location(request.user, location):
+            return Response(
+                {"detail": "No tienes permiso para refrescar este horario."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            refresh_location_schedule_from_astdb(location)
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {"detail": f"No se pudo leer AstDB: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        snapshot = DjangoScheduleRepository().get_schedule_snapshot(
+            tenant_id=location.tenant_id,
+            location_id=location.id,
+        )
+
+        return Response(
+            {
+                "location": CallCenterLocationSerializer(location).data,
+                "timezone": snapshot["timezone"],
+                "sync_status": snapshot.get("sync_status"),
+                "last_sync_error": snapshot.get("last_sync_error", ""),
+                "last_synced_at": snapshot.get("last_synced_at"),
+                "updated_at": snapshot.get("updated_at"),
+                "days": snapshot["days"],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class OperationScheduleAsteriskComparisonView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, location_id):
+        location = get_object_or_404(CallCenterLocation, id=location_id)
+
+        if not user_can_view_location(request.user, location):
+            return Response(
+                {"detail": "No tienes permiso para comparar este horario."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            comparison = compare_location_schedule_with_astdb(location)
+        except (AmiClientError, OSError, ValueError) as exc:
+            return Response(
+                {"detail": f"No se pudo comparar contra AstDB: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(comparison, status=status.HTTP_200_OK)
 
 
 @method_decorator(never_cache, name="dispatch")
@@ -335,6 +435,32 @@ class AdminLocationListCreateView(SuperuserOnlyMixin, APIView):
 
 
 @method_decorator(never_cache, name="dispatch")
+class AdminLocationArchiveView(SuperuserOnlyMixin, APIView):
+    def post(self, request, location_id):
+        location = get_object_or_404(CallCenterLocation, id=location_id)
+        location.is_active = False
+        location.save(update_fields=["is_active"])
+
+        return Response(
+            AdminCallCenterLocationSerializer(location).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminLocationRestoreView(SuperuserOnlyMixin, APIView):
+    def post(self, request, location_id):
+        location = get_object_or_404(CallCenterLocation, id=location_id)
+        location.is_active = True
+        location.save(update_fields=["is_active"])
+
+        return Response(
+            AdminCallCenterLocationSerializer(location).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
 class AdminAsteriskInspectView(SuperuserOnlyMixin, APIView):
     def get(self, request):
         try:
@@ -361,6 +487,37 @@ class AdminAsteriskInspectView(SuperuserOnlyMixin, APIView):
 
 
 @method_decorator(never_cache, name="dispatch")
+class AdminAsteriskInventoryView(SuperuserOnlyMixin, APIView):
+    def get(self, request):
+        try:
+            inventory = inspect_asterisk_inventory()
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {"detail": f"No se pudo inspeccionar Asterisk: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response({"items": inventory}, status=status.HTTP_200_OK)
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminAsteriskHealthView(SuperuserOnlyMixin, APIView):
+    def get(self, request):
+        try:
+            health = check_asterisk_health()
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {
+                    "ok": False,
+                    "detail": str(exc),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(health, status=status.HTTP_200_OK)
+
+
+@method_decorator(never_cache, name="dispatch")
 class AdminAsteriskImportPreviewView(SuperuserOnlyMixin, APIView):
     def post(self, request):
         serializer = AsteriskImportRequestSerializer(data=request.data)
@@ -368,6 +525,23 @@ class AdminAsteriskImportPreviewView(SuperuserOnlyMixin, APIView):
 
         try:
             preview = build_astdb_import_preview(**serializer.validated_data)
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {"detail": f"No se pudo leer AstDB: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(preview, status=status.HTTP_200_OK)
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminAsteriskImportSelectedPreviewView(SuperuserOnlyMixin, APIView):
+    def post(self, request):
+        serializer = AsteriskImportSelectedRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            preview = build_selected_astdb_import_preview(**serializer.validated_data)
         except (AmiClientError, OSError) as exc:
             return Response(
                 {"detail": f"No se pudo leer AstDB: {exc}"},
@@ -399,6 +573,39 @@ class AdminAsteriskImportView(SuperuserOnlyMixin, APIView):
                     many=True,
                 ).data,
                 "imported_days": result["imported_days"],
+                "created_count": result.get("created_count", 0),
+                "updated_count": result.get("updated_count", 0),
+                "restored_count": result.get("restored_count", 0),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminAsteriskImportSelectedView(SuperuserOnlyMixin, APIView):
+    def post(self, request):
+        serializer = AsteriskImportSelectedRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = import_selected_astdb_schedules(**serializer.validated_data)
+        except (AmiClientError, OSError) as exc:
+            return Response(
+                {"detail": f"No se pudo importar desde AstDB: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "tenant": AdminTenantSerializer(result["tenant"]).data,
+                "locations": AdminCallCenterLocationSerializer(
+                    result["locations"],
+                    many=True,
+                ).data,
+                "imported_days": result["imported_days"],
+                "created_count": result.get("created_count", 0),
+                "updated_count": result.get("updated_count", 0),
+                "restored_count": result.get("restored_count", 0),
             },
             status=status.HTTP_201_CREATED,
         )

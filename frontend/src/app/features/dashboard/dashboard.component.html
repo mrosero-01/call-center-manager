@@ -97,159 +97,265 @@
           <section class="admin-panel">
             <div class="section-heading">
               <div>
-                <p>Clientes</p>
-                <h2>Crear tenant</h2>
-              </div>
-            </div>
-
-            <div class="admin-form two-columns">
-              <label>
-                Nombre
-                <input
-                  type="text"
-                  [ngModel]="tenantForm().name"
-                  (ngModelChange)="updateTenantForm('name', $event)"
-                  placeholder="Ej. PAS"
-                />
-              </label>
-              <label>
-                Código
-                <input
-                  type="text"
-                  [ngModel]="tenantForm().code"
-                  (ngModelChange)="updateTenantForm('code', $event)"
-                  placeholder="pas"
-                />
-              </label>
-              <button type="button" class="primary-light-button" (click)="createTenant()" [disabled]="adminActionLoading()">
-                <svg lucidePlus [size]="16" aria-hidden="true"></svg>
-                <span>Crear cliente</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="admin-panel">
-            <div class="section-heading">
-              <div>
-                <p>Call centers</p>
-                <h2>Crear locación</h2>
-              </div>
-            </div>
-
-            <div class="admin-form location-form">
-              <label>
-                Cliente
-                <select
-                  [ngModel]="locationForm().tenant_id"
-                  (ngModelChange)="updateLocationForm('tenant_id', $event)"
-                >
-                  <option [ngValue]="0">Selecciona cliente</option>
-                  @for (tenant of adminTenants(); track tenant.id) {
-                    <option [ngValue]="tenant.id">{{ tenant.name }} / {{ tenant.code }}</option>
-                  }
-                </select>
-              </label>
-              <label>
-                Nombre visible
-                <input
-                  type="text"
-                  [ngModel]="locationForm().name"
-                  (ngModelChange)="updateLocationForm('name', $event)"
-                  placeholder="Callcenter Principal"
-                />
-              </label>
-              <label>
-                Código interno
-                <input
-                  type="text"
-                  [ngModel]="locationForm().code"
-                  (ngModelChange)="updateLocationForm('code', $event)"
-                  placeholder="callcenter-principal"
-                />
-              </label>
-              <label>
-                Familia AstDB
-                <input
-                  type="text"
-                  [ngModel]="locationForm().astdb_family"
-                  (ngModelChange)="updateLocationForm('astdb_family', $event)"
-                  placeholder="callcenter_principal"
-                />
-              </label>
-              <button type="button" class="primary-light-button" (click)="createLocation()" [disabled]="adminActionLoading()">
-                <svg lucidePlus [size]="16" aria-hidden="true"></svg>
-                <span>Crear call center</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="admin-panel">
-            <div class="section-heading">
-              <div>
                 <p>Asterisk</p>
-                <h2>Inspeccionar e importar AstDB</h2>
+                <h2>Importar horarios del servidor</h2>
               </div>
-              <button type="button" class="secondary-button" (click)="inspectAsterisk()" [disabled]="adminActionLoading()">
-                Revisar Asterisk
+              <button type="button" class="secondary-button" (click)="toggleManualAdminForms()">
+                {{ showManualAdminForms() ? 'Ocultar creación manual' : 'Crear manualmente' }}
               </button>
             </div>
 
-            <div class="admin-form import-form">
-              <label>
-                Código tenant destino
-                <input
-                  type="text"
-                  [ngModel]="importForm().tenant_code"
-                  (ngModelChange)="updateImportForm('tenant_code', $event)"
-                  placeholder="pas"
-                />
-              </label>
-              <label>
-                Nombre tenant
-                <input
-                  type="text"
-                  [ngModel]="importForm().tenant_name"
-                  (ngModelChange)="updateImportForm('tenant_name', $event)"
-                  placeholder="PAS"
-                />
-              </label>
-              <label>
-                Familia específica
-                <input
-                  type="text"
-                  [ngModel]="importForm().family"
-                  (ngModelChange)="updateImportForm('family', $event)"
-                  placeholder="Opcional: callcenter_principal"
-                />
-              </label>
-              <button type="button" class="secondary-button" (click)="previewAstdbImport()" [disabled]="adminActionLoading()">
-                Vista previa
-              </button>
-              <button type="button" class="primary-light-button" (click)="importAstdbSchedules()" [disabled]="adminActionLoading()">
-                Importar
-              </button>
+            <div class="import-flow">
+              <article>
+                <span>1</span>
+                <strong>Revisar servidor</strong>
+                <small>Detecta contextos y claves /horario.</small>
+              </article>
+              <article>
+                <span>2</span>
+                <strong>Seleccionar familias</strong>
+                <small>Marca solo callcenters con horario AstDB.</small>
+              </article>
+              <article>
+                <span>3</span>
+                <strong>Previsualizar</strong>
+                <small>Confirma qué se creará o actualizará.</small>
+              </article>
+              <article>
+                <span>4</span>
+                <strong>Importar</strong>
+                <small>Django queda organizado por tenant.</small>
+              </article>
             </div>
 
-            @if (asteriskInspect()) {
-              <div class="admin-result-grid">
-                <article class="admin-result">
-                  <strong>Contextos dialplan</strong>
-                  <span>{{ asteriskInspect()?.contexts?.length || 0 }} detectado(s)</span>
-                  <div class="chip-list">
-                    @for (context of asteriskInspect()?.contexts || []; track context) {
-                      <code>{{ context }}</code>
-                    }
+            <div class="import-control-panel">
+              <div class="admin-form import-form">
+                <label>
+                  Código tenant destino
+                  <input
+                    type="text"
+                    [ngModel]="importForm().tenant_code"
+                    (ngModelChange)="updateImportForm('tenant_code', $event)"
+                    placeholder="pas"
+                  />
+                </label>
+                <label>
+                  Nombre tenant
+                  <input
+                    type="text"
+                    [ngModel]="importForm().tenant_name"
+                    (ngModelChange)="updateImportForm('tenant_name', $event)"
+                    placeholder="PAS"
+                  />
+                </label>
+                <button type="button" class="secondary-button" (click)="refreshAsteriskInventory()" [disabled]="adminActionLoading()">
+                  {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Revisar servidor' }}
+                </button>
+                <button type="button" class="secondary-button" (click)="previewAstdbImport()" [disabled]="adminActionLoading() || selectedInventoryCount() === 0">
+                  {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Vista previa' }}
+                </button>
+                <button type="button" class="primary-light-button" (click)="importAstdbSchedules()" [disabled]="adminActionLoading() || !importReadyToConfirm()">
+                  {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Confirmar importación' }}
+                </button>
+              </div>
+
+              <div class="mini-metrics inventory-metrics">
+                <div>
+                  <span>Contextos/familias</span>
+                  <strong>{{ asteriskInventory().length }}</strong>
+                </div>
+                <div>
+                  <span>Con horario</span>
+                  <strong>{{ inventoryWithScheduleCount() }}</strong>
+                </div>
+                <div>
+                  <span>Ya en Django</span>
+                  <strong>{{ inventoryImportedCount() }}</strong>
+                </div>
+                <div>
+                  <span>Seleccionados</span>
+                  <strong>{{ selectedInventoryCount() }}</strong>
+                </div>
+              </div>
+            </div>
+
+            @if (showManualAdminForms()) {
+              <div class="manual-admin-forms">
+                <section>
+                  <div class="section-heading compact">
+                    <div>
+                      <p>Clientes</p>
+                      <h2>Crear tenant</h2>
+                    </div>
                   </div>
-                </article>
-                <article class="admin-result">
-                  <strong>Familias con horario</strong>
-                  <span>{{ asteriskInspect()?.families?.length || 0 }} detectada(s)</span>
-                  <div class="chip-list">
-                    @for (family of asteriskInspect()?.families || []; track family.astdb_family) {
-                      <code>{{ family.astdb_family }}: {{ formatFamilyDays(family) }}</code>
-                    }
+                  <div class="admin-form two-columns">
+                    <label>
+                      Nombre
+                      <input
+                        type="text"
+                        [ngModel]="tenantForm().name"
+                        (ngModelChange)="updateTenantForm('name', $event)"
+                        placeholder="Ej. PAS"
+                      />
+                    </label>
+                    <label>
+                      Código
+                      <input
+                        type="text"
+                        [ngModel]="tenantForm().code"
+                        (ngModelChange)="updateTenantForm('code', $event)"
+                        placeholder="pas"
+                      />
+                    </label>
+                    <button type="button" class="primary-light-button" (click)="createTenant()" [disabled]="adminActionLoading()">
+                      <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                      <span>Crear cliente</span>
+                    </button>
                   </div>
-                </article>
+                </section>
+
+                <section>
+                  <div class="section-heading compact">
+                    <div>
+                      <p>Call centers</p>
+                      <h2>Crear locación</h2>
+                    </div>
+                  </div>
+                  <div class="admin-form location-form">
+                    <label>
+                      Cliente
+                      <select
+                        [ngModel]="locationForm().tenant_id"
+                        (ngModelChange)="updateLocationForm('tenant_id', $event)"
+                      >
+                        <option [ngValue]="0">Selecciona cliente</option>
+                        @for (tenant of adminTenants(); track tenant.id) {
+                          <option [ngValue]="tenant.id">{{ tenant.name }} / {{ tenant.code }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label>
+                      Nombre visible
+                      <input
+                        type="text"
+                        [ngModel]="locationForm().name"
+                        (ngModelChange)="updateLocationForm('name', $event)"
+                        placeholder="Callcenter Principal"
+                      />
+                    </label>
+                    <label>
+                      Código interno
+                      <input
+                        type="text"
+                        [ngModel]="locationForm().code"
+                        (ngModelChange)="updateLocationForm('code', $event)"
+                        placeholder="callcenter-principal"
+                      />
+                    </label>
+                    <label>
+                      Familia AstDB
+                      <input
+                        type="text"
+                        [ngModel]="locationForm().astdb_family"
+                        (ngModelChange)="updateLocationForm('astdb_family', $event)"
+                        placeholder="callcenter_principal"
+                      />
+                    </label>
+                    <button type="button" class="primary-light-button" (click)="createLocation()" [disabled]="adminActionLoading()">
+                      <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                      <span>Crear call center</span>
+                    </button>
+                  </div>
+                </section>
+              </div>
+            }
+
+            @if (asteriskInventory().length > 0) {
+              <div class="inventory-toolbar">
+                <strong>Horarios AstDB detectados</strong>
+                <div>
+                  <button type="button" class="secondary-button compact-button" (click)="selectAllImportableInventory()">
+                    Seleccionar con horario
+                  </button>
+                  <button type="button" class="secondary-button compact-button" (click)="clearInventorySelection()" [disabled]="selectedInventoryCount() === 0">
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+              @if (inventoryWithSchedule().length > 0) {
+                <div class="inventory-table-wrap">
+                  <table class="inventory-table">
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th>Nombre técnico</th>
+                        <th>Contexto</th>
+                        <th>Días</th>
+                        <th>Estado Django</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (item of inventoryWithSchedule(); track item.name) {
+                        <tr>
+                          <td>
+                            <input
+                              type="checkbox"
+                              [checked]="isInventoryFamilySelected(item)"
+                              (change)="toggleInventoryFamily(item, $any($event.target).checked)"
+                              [attr.aria-label]="'Seleccionar ' + item.name"
+                            />
+                          </td>
+                          <td><code>{{ item.name }}</code></td>
+                          <td>
+                            <span class="status-pill" [class.inactive]="!item.has_context">
+                              {{ item.has_context ? 'Sí' : 'No' }}
+                            </span>
+                          </td>
+                          <td>{{ formatInventoryDays(item) }}</td>
+                          <td>
+                            @if (item.django_location) {
+                              <span class="django-state">{{ item.django_location.tenant }} / {{ item.django_location.is_active ? 'Activo' : 'Oculto' }}</span>
+                            } @else {
+                              <span class="django-state missing">No importado</span>
+                            }
+                          </td>
+                          <td><strong class="action-label">{{ suggestedActionLabel(item.suggested_action) }}</strong></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <div class="empty-rules">
+                  <strong>No hay horarios AstDB detectados</strong>
+                  <span>El servidor respondió, pero no se encontraron claves bajo /horario/&lt;familia&gt;/Mon-Tue...</span>
+                </div>
+              }
+
+              @if (inventoryWithoutSchedule().length > 0) {
+                <div class="collapsed-inventory">
+                  <button type="button" class="secondary-button" (click)="toggleInventoryWithoutSchedule()">
+                    {{ showInventoryWithoutSchedule() ? 'Ocultar contextos sin horario' : 'Ver contextos sin horario' }}
+                    <span>{{ inventoryWithoutSchedule().length }}</span>
+                  </button>
+                  @if (showInventoryWithoutSchedule()) {
+                    <div class="context-grid">
+                      @for (item of inventoryWithoutSchedule(); track item.name) {
+                        <article>
+                          <code>{{ item.name }}</code>
+                          <span>{{ item.has_context ? 'Contexto' : 'Sin contexto' }}</span>
+                          <strong>{{ suggestedActionLabel(item.suggested_action) }}</strong>
+                        </article>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            } @else {
+              <div class="empty-rules">
+                <strong>Inventario sin cargar</strong>
+                <span>Usa Revisar servidor para detectar contextos y horarios AstDB.</span>
               </div>
             }
 
@@ -257,12 +363,18 @@
               <div class="preview-panel">
                 <div class="preview-head">
                   <strong>Importación propuesta</strong>
-                  <span>{{ importPreview()?.locations?.length || 0 }} call center(s)</span>
+                  <span>
+                    {{ previewCreatedCount() }} nuevo(s) ·
+                    {{ previewUpdatedCount() }} existente(s) ·
+                    {{ previewRestoredCount() }} oculto(s)
+                  </span>
                 </div>
                 <div class="preview-list">
                   @for (location of importPreview()?.locations || []; track location.astdb_family) {
                     <article class="preview-item">
-                      <span class="preview-action">{{ location.exists ? 'Existe' : 'Nuevo' }}</span>
+                      <span class="preview-action">
+                        {{ location.exists ? (location.is_active ? 'Existe' : 'Oculto') : 'Nuevo' }}
+                      </span>
                       <code>{{ location.astdb_family }}</code>
                       <strong>{{ formatFamilyDays(location) }}</strong>
                     </article>
@@ -274,6 +386,30 @@
         </div>
 
         <aside class="admin-side">
+          <section class="admin-panel">
+            <div class="section-heading compact">
+              <div>
+                <p>Estado</p>
+                <h2>Asterisk AMI</h2>
+              </div>
+            </div>
+            <div class="health-card" [class.failed]="asteriskHealth()?.ok === false">
+              <strong>{{ asteriskHealthLabel() }}</strong>
+              @if (asteriskHealth()?.host) {
+                <span>{{ asteriskHealth()?.host }}:{{ asteriskHealth()?.port }}</span>
+              }
+              @if (asteriskHealth()?.latency_ms !== undefined) {
+                <small>{{ asteriskHealth()?.latency_ms }} ms</small>
+              }
+              @if (asteriskHealth()?.message || asteriskHealth()?.detail) {
+                <small>{{ asteriskHealth()?.message || asteriskHealth()?.detail }}</small>
+              }
+            </div>
+            <button type="button" class="secondary-button full-button" (click)="checkAsteriskHealth()" [disabled]="asteriskHealthLoading()">
+              {{ asteriskHealthLoading() ? 'Revisando AMI...' : 'Revisar AMI' }}
+            </button>
+          </section>
+
           <section class="admin-panel">
             <div class="section-heading compact">
               <div>
@@ -293,19 +429,25 @@
             </div>
             <div class="side-actions">
               <button type="button" class="primary-light-button" (click)="processSyncJobs(false)" [disabled]="adminActionLoading()">
-                Procesar
+                {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Procesar' }}
               </button>
               <button type="button" class="secondary-button" (click)="processSyncJobs(true)" [disabled]="adminActionLoading()">
-                Reintentar fallidos
+                {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Reintentar fallidos' }}
               </button>
             </div>
             <div class="job-list">
               @for (job of syncJobs(); track job.id) {
                 <article class="job-item" [class.failed]="job.status === 'failed'">
-                  <strong>#{{ job.id }} {{ job.location }}</strong>
-                  <span>{{ job.status }} / intentos: {{ job.attempts }}</span>
+                  <div>
+                    <strong>#{{ job.id }} {{ job.location }}</strong>
+                    <span>{{ job.astdb_family }}</span>
+                  </div>
+                  <span class="status-pill" [class.inactive]="job.status !== 'synced'">
+                    {{ job.status }}
+                  </span>
+                  <small>Intentos: {{ job.attempts }}</small>
                   @if (job.last_error) {
-                    <small>{{ job.last_error }}</small>
+                    <small class="job-error">{{ job.last_error }}</small>
                   }
                 </article>
               } @empty {
@@ -321,11 +463,56 @@
                 <h2>Call centers</h2>
               </div>
             </div>
+            <div class="mini-metrics">
+              <div>
+                <span>Activos</span>
+                <strong>{{ activeAdminLocationsCount() }}</strong>
+              </div>
+              <div>
+                <span>Ocultos</span>
+                <strong>{{ inactiveAdminLocationsCount() }}</strong>
+              </div>
+            </div>
             <div class="admin-location-list">
               @for (location of adminLocations(); track location.id) {
-                <article>
-                  <strong>{{ location.name }}</strong>
-                  <span>{{ location.tenant.code }} / {{ location.astdb_family }}</span>
+                <article [class.inactive]="!location.is_active">
+                  <div class="location-main">
+                    <strong>{{ location.name }}</strong>
+                    <span>{{ location.tenant.code }}</span>
+                  </div>
+                  <code>{{ location.astdb_family }}</code>
+                  <div class="location-actions">
+                    <span class="status-pill" [class.inactive]="!location.is_active">
+                      {{ location.is_active ? 'Activo' : 'Oculto' }}
+                    </span>
+                    @if (location.is_active) {
+                      <button
+                        type="button"
+                        class="secondary-button compact-button"
+                        (click)="openLocationSchedule(location)"
+                        [disabled]="adminActionLoading()"
+                      >
+                        {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Abrir' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="text-button compact-button"
+                        (click)="archiveLocation(location)"
+                        [disabled]="adminActionLoading()"
+                      >
+                        {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Ocultar' }}
+                      </button>
+                    } @else {
+                      <button
+                        type="button"
+                        class="secondary-button compact-button"
+                        (click)="restoreLocation(location)"
+                        [disabled]="adminActionLoading()"
+                      >
+                        {{ adminActionLoading() ? adminActionLabel() || 'Procesando...' : 'Restaurar' }}
+                      </button>
+                    }
+                  </div>
                 </article>
               } @empty {
                 <p class="muted">Sin call centers creados</p>
@@ -351,7 +538,41 @@
         }
       </div>
     } @else if (activeModule() === 'dashboard') {
-      <div class="state-band">Dashboard general en construcción. Usa Horarios o Administración para operar el MVP.</div>
+      <section class="dashboard-panel">
+        <div class="status-grid" aria-label="Resumen operativo">
+          <div class="metric">
+            <svg lucideWifi [size]="18" aria-hidden="true"></svg>
+            <span>Call centers visibles</span>
+            <strong>{{ locations().length }}</strong>
+          </div>
+          <div class="metric">
+            <svg lucideClock3 [size]="18" aria-hidden="true"></svg>
+            <span>Horario seleccionado</span>
+            <strong>{{ selectedLocation()?.name || 'Sin selección' }}</strong>
+          </div>
+          <div class="metric">
+            <svg lucideCalendarClock [size]="18" aria-hidden="true"></svg>
+            <span>Estado sincronización</span>
+            <strong [class.sync-failed]="syncStatus() === 'failed'">{{ syncStatusLabel() }}</strong>
+          </div>
+          <div class="metric">
+            <svg lucideHistory [size]="18" aria-hidden="true"></svg>
+            <span>Últimos cambios</span>
+            <strong>{{ changeLogs().length }}</strong>
+          </div>
+        </div>
+
+        <div class="dashboard-actions">
+          <button type="button" class="primary-light-button" (click)="selectModule('schedule')">
+            Ir a horarios
+          </button>
+          @if (isSuperuser()) {
+            <button type="button" class="secondary-button" (click)="selectModule('admin')">
+              Ir a administración
+            </button>
+          }
+        </div>
+      </section>
     } @else if (loading()) {
       <div class="state-band">Cargando sesión</div>
     } @else if (locations().length === 0) {
@@ -389,6 +610,13 @@
         </div>
       }
 
+      @if (!canManageSchedule()) {
+        <div class="sync-warning readonly-warning">
+          <strong>Modo solo lectura</strong>
+          <span>Tu usuario puede consultar este horario, pero no modificarlo.</span>
+        </div>
+      }
+
       <section class="schedule-layout">
         <div class="schedule-panel">
           <div class="section-heading">
@@ -400,23 +628,35 @@
 
           <div class="schedule-note">
             <strong>Días fuera de bloques: {{ unassignedDayLabels() }}</strong>
-            <span>Los días no seleccionados no se modifican en Asterisk.</span>
+            <span>Los días no seleccionados no se envían en este guardado. Si ya existen en Asterisk, se conservan.</span>
+          </div>
+
+          <div class="schedule-source-bar">
+            <span>Fuente actual: Django</span>
+            <span>AstDB: {{ selectedLocation()?.astdb_family }}</span>
+            <span>Última sincronización: {{ lastSyncedAt() ? (lastSyncedAt() | date: 'short') : 'Sin registro' }}</span>
           </div>
 
           <div class="rule-toolbar">
-            <button type="button" class="secondary-button" (click)="applyWorkweekTemplate()">
+            <button type="button" class="secondary-button" (click)="applyWorkweekTemplate()" [disabled]="!canManageSchedule()">
               Semana laboral
             </button>
             <button
               type="button"
               class="secondary-button"
               (click)="runPreview()"
-              [disabled]="previewLoading() || !hasScheduleChanges()"
+              [disabled]="previewLoading() || !hasScheduleChanges() || !canManageSchedule()"
             >
               {{ previewLoading() ? 'Revisando' : 'Vista previa AstDB' }}
             </button>
+            <button type="button" class="secondary-button" (click)="refreshCurrentScheduleFromAsterisk()" [disabled]="loading() || !canManageSchedule()">
+              {{ loading() ? 'Leyendo...' : 'Leer desde Asterisk' }}
+            </button>
+            <button type="button" class="secondary-button" (click)="compareCurrentScheduleWithAsterisk()" [disabled]="comparingAsterisk()">
+              {{ comparingAsterisk() ? 'Comparando...' : 'Comparar con Asterisk' }}
+            </button>
             @if (scheduleRules().length > 0 && hasAvailableDays()) {
-              <button type="button" class="secondary-button" (click)="addRule()">
+              <button type="button" class="secondary-button" (click)="addRule()" [disabled]="!canManageSchedule()">
                 <svg lucidePlus [size]="16" aria-hidden="true"></svg>
                 <span>Horario específico</span>
               </button>
@@ -447,6 +687,26 @@
             </div>
           }
 
+          @if (asteriskComparison()) {
+            <div class="comparison-panel" [class.in-sync]="asteriskComparison()?.in_sync">
+              <div class="comparison-head">
+                <strong>{{ asteriskComparison()?.in_sync ? 'Django y Asterisk están alineados' : 'Diferencias detectadas' }}</strong>
+                <span>{{ asteriskComparison()?.differences?.length || 0 }} diferencia(s)</span>
+              </div>
+              @if (!asteriskComparison()?.in_sync) {
+                <div class="comparison-list">
+                  @for (difference of asteriskComparison()?.differences || []; track difference.day_of_week) {
+                    <article>
+                      <strong>{{ difference.day_of_week }}</strong>
+                      <span>Django: {{ formatRanges(difference.django_ranges) || 'Cerrado' }}</span>
+                      <span>Asterisk: {{ formatRanges(difference.asterisk_ranges) || 'Cerrado' }}</span>
+                    </article>
+                  }
+                </div>
+              }
+            </div>
+          }
+
           <div class="rule-list">
             @for (rule of scheduleRules(); track rule.id; let ruleIndex = $index) {
               <article class="rule-card">
@@ -459,6 +719,7 @@
                     type="button"
                     class="icon-button danger"
                     (click)="removeRule(rule.id)"
+                    [disabled]="!canManageSchedule()"
                     title="Eliminar regla"
                   >
                     <svg lucideTrash2 [size]="16" aria-hidden="true"></svg>
@@ -469,9 +730,10 @@
                   @for (weekday of weekdays; track weekday.day) {
                     <label [class.selected]="isDaySelected(rule, weekday.day)">
                       <input
-                        type="checkbox"
-                        [checked]="isDaySelected(rule, weekday.day)"
-                        (change)="toggleRuleDay(rule, weekday.day, $any($event.target).checked)"
+                      type="checkbox"
+                      [checked]="isDaySelected(rule, weekday.day)"
+                      [disabled]="!canManageSchedule()"
+                      (change)="toggleRuleDay(rule, weekday.day, $any($event.target).checked)"
                       />
                       <span>{{ weekday.shortLabel }}</span>
                     </label>
@@ -490,6 +752,7 @@
                           pattern="^([01]\d|2[0-3]):[0-5]\d$"
                           placeholder="08:00"
                           [ngModel]="range.start"
+                          [disabled]="!canManageSchedule()"
                           (ngModelChange)="updateRangeValue(rule.id, $index, 'start', $event)"
                         />
                       </label>
@@ -502,6 +765,7 @@
                           pattern="^([01]\d|2[0-3]):[0-5]\d$"
                           placeholder="18:00"
                           [ngModel]="range.end"
+                          [disabled]="!canManageSchedule()"
                           (ngModelChange)="updateRangeValue(rule.id, $index, 'end', $event)"
                         />
                       </label>
@@ -510,6 +774,7 @@
                           type="button"
                           class="icon-button danger"
                           (click)="removeRange(rule, $index)"
+                          [disabled]="!canManageSchedule()"
                           title="Quitar franja"
                         >
                           <svg lucideTrash2 [size]="16" aria-hidden="true"></svg>
@@ -520,11 +785,11 @@
                 </div>
 
                 <footer class="rule-actions">
-                  <button type="button" class="text-button" (click)="copyRuleToWorkdays(rule)">
+                  <button type="button" class="text-button" (click)="copyRuleToWorkdays(rule)" [disabled]="!canManageSchedule()">
                     <svg lucideCopy [size]="15" aria-hidden="true"></svg>
                     <span>Copiar a hábiles</span>
                   </button>
-                  <button type="button" class="add-range" (click)="addRange(rule)">
+                  <button type="button" class="add-range" (click)="addRange(rule)" [disabled]="!canManageSchedule()">
                     <svg lucidePlus [size]="16" aria-hidden="true"></svg>
                     <span>Franja</span>
                   </button>
@@ -532,9 +797,9 @@
               </article>
             } @empty {
               <div class="empty-rules">
-                <strong>No hay días seleccionados</strong>
-                <span>Crea un bloque para sincronizar horarios específicos.</span>
-                <button type="button" class="primary-light-button" (click)="addRule()">
+                <strong>No hay horario cargado en Django</strong>
+                <span>Puedes leerlo desde Asterisk o crear un bloque nuevo para sincronizar horarios específicos.</span>
+                <button type="button" class="primary-light-button" (click)="addRule()" [disabled]="!canManageSchedule()">
                   <svg lucidePlus [size]="16" aria-hidden="true"></svg>
                   <span>Añadir horario</span>
                 </button>
@@ -558,6 +823,7 @@
                   <strong>{{ log.reason }}</strong>
                   <span>{{ log.changed_by || 'Sistema' }}</span>
                 </div>
+                <p>{{ summarizeAuditChange(log) }}</p>
                 <time>{{ log.created_at | date: 'short' }}</time>
               </article>
             } @empty {
@@ -568,6 +834,9 @@
       </section>
 
       <div class="save-dock">
+        <div class="save-summary" [class.pending]="hasScheduleChanges()">
+          {{ saveSummary() }}
+        </div>
         <label>
           Motivo del cambio obligatorio
           <input
@@ -575,6 +844,7 @@
             maxlength="250"
             [ngModel]="reason()"
             (ngModelChange)="updateReason($event)"
+            [disabled]="!canManageSchedule()"
             placeholder="Ej. Ajuste por campaña"
           />
         </label>
@@ -582,10 +852,10 @@
           type="button"
           class="save-button"
           (click)="saveSchedule()"
-          [disabled]="saving() || !hasScheduleChanges()"
+          [disabled]="saving() || !hasScheduleChanges() || !canManageSchedule()"
         >
           <svg lucideSave [size]="18" aria-hidden="true"></svg>
-          <span>{{ saving() ? 'Guardando' : hasScheduleChanges() ? 'Guardar' : 'Sin cambios' }}</span>
+          <span>{{ saving() ? 'Guardando...' : hasScheduleChanges() ? 'Guardar' : 'Sin cambios' }}</span>
         </button>
 
         <div class="save-feedback" aria-live="polite">

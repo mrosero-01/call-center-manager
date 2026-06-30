@@ -224,6 +224,26 @@ python manage.py process_schedule_sync_jobs
 asterisk -rx "database show horario"
 ```
 
+Desde la interfaz de superadmin, el flujo equivalente es:
+
+1. Ir a `Administracion`.
+2. Pulsar `Revisar servidor`.
+3. Revisar la tabla de inventario:
+   - nombre tecnico
+   - si existe como contexto
+   - si tiene horario AstDB
+   - si ya existe en Django
+   - accion sugerida
+4. Seleccionar las familias con horario.
+5. Pulsar `Vista previa seleccionados`.
+6. Pulsar `Importar seleccionados`.
+
+Esto evita escribir nombres tecnicos a mano y reduce errores al trabajar con
+servidores Asterisk que ya tienen varios contextos y horarios.
+
+Antes de importar, la interfaz exige una vista previa. El boton final queda como
+`Confirmar importacion` para evitar cambios accidentales.
+
 ## 9. Regla de produccion
 
 Django/PostgreSQL debe ser la fuente de verdad:
@@ -240,3 +260,88 @@ AstDB debe ser una copia operativa para Asterisk:
 - formato simple
 - lectura rapida desde dialplan
 - una clave por call center y dia
+
+## 10. Limpiar pruebas sin perder historial
+
+No se recomienda borrar call centers que ya tienen horarios, auditoria o jobs.
+Esas tablas dejan evidencia de cambios y sincronizaciones.
+
+Para limpiar la interfaz:
+
+1. Entrar como superadmin.
+2. Ir a `Administracion`.
+3. En `Call centers`, usar `Ocultar`.
+
+Un call center oculto:
+
+- no aparece en la pantalla normal de `Horarios`
+- no aparece para admins de tenant
+- conserva auditoria, horarios y jobs
+- puede restaurarse desde `Administracion`
+
+Si importas desde AstDB una familia que ya existe pero esta oculta, el sistema
+la reactiva automaticamente.
+
+## 11. Refrescar un horario desde Asterisk
+
+En la pantalla `Horarios` existe la accion:
+
+```text
+Leer desde Asterisk
+```
+
+Esa accion lee `/horario/<astdb_family>/*` desde AstDB y actualiza Django con
+lo que realmente tiene el servidor en ese momento.
+
+Usarla cuando:
+
+- alguien modifico AstDB fuera de la aplicacion
+- quieres comprobar el estado real antes de editar
+- acabas de importar horarios y quieres validar una locacion concreta
+
+Si un dia no existe en AstDB, se considera cerrado/no configurado y no se
+mantiene una version vieja en Django.
+
+Tambien existe la accion:
+
+```text
+Comparar con Asterisk
+```
+
+Esa accion no modifica datos. Solo muestra si Django y AstDB tienen el mismo
+horario o si hay diferencias por dia.
+
+## 12. Estado AMI y permisos
+
+En `Administracion` se muestra una tarjeta `Asterisk AMI` con:
+
+- estado de conexion
+- host y puerto
+- latencia aproximada
+- mensaje de respuesta o error
+
+Roles actuales:
+
+- `superadmin`: administra todo
+- `admin` de tenant: ve y modifica horarios de su tenant
+- `operator`: ve horarios de su tenant en modo solo lectura
+
+Cuando un usuario abre un horario y otro usuario lo modifica antes de guardar,
+la API rechaza el guardado y pide refrescar. Esto evita sobrescribir cambios
+recientes con una version vieja.
+
+## 13. Limpieza segura de jobs
+
+Para revisar cuantos jobs sincronizados antiguos se limpiarian:
+
+```bash
+python manage.py prune_schedule_sync_jobs --older-than-days 90 --dry-run
+```
+
+Para eliminarlos:
+
+```bash
+python manage.py prune_schedule_sync_jobs --older-than-days 90
+```
+
+Este comando solo borra jobs `synced` antiguos. No borra pendientes ni fallidos.

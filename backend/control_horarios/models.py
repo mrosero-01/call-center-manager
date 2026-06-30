@@ -64,6 +64,7 @@ class CallCenterLocation(models.Model):
     name = models.CharField(max_length=100)
     code = models.SlugField(max_length=100)
     astdb_family = models.SlugField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["tenant__name", "name"]

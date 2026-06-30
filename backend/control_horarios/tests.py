@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.management import call_command
+from django.utils import timezone
 from django.urls import reverse
 from django.test import override_settings
 from django.test import SimpleTestCase, TestCase
@@ -1264,6 +1265,25 @@ class OperationScheduleApiTests(APITestCase):
         self.assertEqual(response.data[0]["id"], self.location.id)
         self.assertEqual(response.data[0]["astdb_family"], "pas_aba_cla")
 
+    def test_operator_membership_can_view_locations_readonly(self):
+        operator = get_user_model().objects.create_user(
+            username="operador-lectura",
+            password="test-pass",
+        )
+        TenantMembership.objects.create(
+            tenant=self.tenant,
+            user=operator,
+            role=TenantMembership.Role.OPERATOR,
+        )
+        self.client.force_authenticate(user=operator)
+
+        locations_response = self.client.get(self.locations_url)
+        schedule_response = self.client.get(self.url)
+
+        self.assertEqual(locations_response.status_code, 200)
+        self.assertEqual(len(locations_response.data), 1)
+        self.assertEqual(schedule_response.status_code, 200)
+
     def test_superuser_lists_all_locations(self):
         other_tenant = Tenant.objects.create(name="OTRO", code="otro")
         CallCenterLocation.objects.create(
@@ -1282,6 +1302,16 @@ class OperationScheduleApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 2)
+
+    def test_hidden_locations_are_not_listed_for_daily_operation(self):
+        self.location.is_active = False
+        self.location.save(update_fields=["is_active"])
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self.locations_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, [])
 
     def test_gets_current_operation_schedule(self):
         schedule = OperationSchedule.objects.create(
@@ -1483,6 +1513,110 @@ class OperationScheduleApiTests(APITestCase):
                 day_of_week="Tue",
             ).exists()
         )
+
+    def test_member_can_refresh_schedule_from_asterisk(self):
+        def refresh_from_astdb(location):
+            schedule, _created = OperationSchedule.objects.update_or_create(
+                tenant=location.tenant,
+                location=location,
+                defaults={
+                    "timezone": "America/Bogota",
+                    "sync_status": OperationSchedule.SyncStatus.SYNCED,
+                },
+            )
+            OperationScheduleDay.objects.update_or_create(
+                schedule=schedule,
+                day_of_week="Mon",
+                defaults={
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                        {"start": "14:00", "end": "18:00"},
+                    ]
+                },
+            )
+
+        self.client.force_authenticate(user=self.user)
+
+        with patch(
+            "control_horarios.views.refresh_location_schedule_from_astdb",
+            side_effect=refresh_from_astdb,
+        ):
+            response = self.client.post(
+                reverse(
+                    "operation-schedule-refresh-from-asterisk",
+                    kwargs={"location_id": self.location.id},
+                )
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["sync_status"], "synced")
+        self.assertEqual(
+            response.data["days"]["Mon"],
+            [
+                {"start": "08:00", "end": "12:00"},
+                {"start": "14:00", "end": "18:00"},
+            ],
+        )
+
+    def test_api_rejects_stale_schedule_update(self):
+        schedule = OperationSchedule.objects.create(
+            tenant=self.tenant,
+            location=self.location,
+            timezone="America/Bogota",
+        )
+        stale_timestamp = schedule.updated_at
+        schedule.timezone = "America/Lima"
+        schedule.save()
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "timezone": "America/Bogota",
+            "expected_updated_at": stale_timestamp.isoformat(),
+            "reason": "Cambio con version vieja",
+            "days": [
+                {
+                    "day_of_week": "Mon",
+                    "ranges": [
+                        {"start": "08:00", "end": "12:00"},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.put(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("modificado por otra sesion", response.data["detail"])
+
+    def test_member_can_compare_schedule_with_asterisk(self):
+        self.client.force_authenticate(user=self.user)
+
+        with patch(
+            "control_horarios.views.compare_location_schedule_with_astdb",
+            return_value={
+                "astdb_family": "pas_aba_cla",
+                "in_sync": False,
+                "django_days": {"Mon": [{"start": "08:00", "end": "12:00"}]},
+                "asterisk_days": {"Mon": [{"start": "08:00", "end": "18:00"}]},
+                "differences": [
+                    {
+                        "day_of_week": "Mon",
+                        "django_ranges": [{"start": "08:00", "end": "12:00"}],
+                        "asterisk_ranges": [{"start": "08:00", "end": "18:00"}],
+                    }
+                ],
+                "checked_at": timezone.now().isoformat(),
+            },
+        ):
+            response = self.client.get(
+                reverse(
+                    "operation-schedule-compare-asterisk",
+                    kwargs={"location_id": self.location.id},
+                )
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["in_sync"])
+        self.assertEqual(response.data["differences"][0]["day_of_week"], "Mon")
 
     def test_api_enqueues_only_days_present_in_payload(self):
         schedule = OperationSchedule.objects.create(
@@ -1815,6 +1949,7 @@ class SuperadminOperationApiTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(CallCenterLocation.objects.count(), 1)
         self.assertEqual(response.data["astdb_family"], "callcenter_principal")
+        self.assertTrue(response.data["is_active"])
 
     def test_tenant_admin_cannot_use_superadmin_endpoints(self):
         self.client.force_authenticate(user=self.tenant_admin)
@@ -1822,6 +1957,33 @@ class SuperadminOperationApiTests(APITestCase):
         response = self.client.get(reverse("admin-location-list-create"))
 
         self.assertEqual(response.status_code, 403)
+
+    def test_superuser_can_archive_and_restore_location(self):
+        location = CallCenterLocation.objects.create(
+            tenant=self.tenant,
+            name="Callcenter Principal",
+            code="callcenter-principal",
+            astdb_family="callcenter_principal",
+        )
+        self.client.force_authenticate(user=self.superuser)
+
+        archive_response = self.client.post(
+            reverse("admin-location-archive", kwargs={"location_id": location.id})
+        )
+        location.refresh_from_db()
+
+        self.assertEqual(archive_response.status_code, 200)
+        self.assertFalse(location.is_active)
+        self.assertFalse(archive_response.data["is_active"])
+
+        restore_response = self.client.post(
+            reverse("admin-location-restore", kwargs={"location_id": location.id})
+        )
+        location.refresh_from_db()
+
+        self.assertEqual(restore_response.status_code, 200)
+        self.assertTrue(location.is_active)
+        self.assertTrue(restore_response.data["is_active"])
 
     def test_superuser_can_inspect_asterisk_through_api(self):
         self.client.force_authenticate(user=self.superuser)
@@ -1845,3 +2007,81 @@ class SuperadminOperationApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["contexts"], ["callcenter_principal"])
         self.assertEqual(response.data["families"][0]["astdb_family"], "callcenter_principal")
+
+    def test_superuser_can_view_organized_asterisk_inventory(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        with patch(
+            "control_horarios.views.inspect_asterisk_inventory",
+            return_value=[
+                {
+                    "name": "callcenter_principal",
+                    "has_context": True,
+                    "has_astdb_schedule": True,
+                    "days": [
+                        {
+                            "day_of_week": "Mon",
+                            "ranges": [{"start": "08:00", "end": "12:00"}],
+                        }
+                    ],
+                    "django_location": None,
+                    "suggested_action": "import",
+                }
+            ],
+        ):
+            response = self.client.get(reverse("admin-asterisk-inventory"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["items"][0]["name"], "callcenter_principal")
+        self.assertEqual(response.data["items"][0]["suggested_action"], "import")
+
+    def test_superuser_can_check_asterisk_health(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        with patch(
+            "control_horarios.views.check_asterisk_health",
+            return_value={
+                "ok": True,
+                "host": "127.0.0.1",
+                "port": 5038,
+                "latency_ms": 12,
+                "message": "AMI respondio correctamente.",
+            },
+        ):
+            response = self.client.get(reverse("admin-asterisk-health"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(response.data["latency_ms"], 12)
+
+    def test_superuser_can_import_selected_astdb_families(self):
+        self.client.force_authenticate(user=self.superuser)
+        imported_location = CallCenterLocation.objects.create(
+            tenant=self.tenant,
+            name="Callcenter Principal",
+            code="callcenter-principal",
+            astdb_family="callcenter_principal",
+        )
+
+        with patch(
+            "control_horarios.views.import_selected_astdb_schedules",
+            return_value={
+                "tenant": self.tenant,
+                "locations": [imported_location],
+                "imported_days": 1,
+            },
+        ) as import_selected:
+            response = self.client.post(
+                reverse("admin-asterisk-import-selected"),
+                {
+                    "tenant_code": "pas",
+                    "tenant_name": "PAS",
+                    "families": ["callcenter_principal"],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        import_selected.assert_called_once()
+        self.assertEqual(response.data["imported_days"], 1)
+        self.assertEqual(response.data["locations"][0]["astdb_family"], "callcenter_principal")

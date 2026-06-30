@@ -26,8 +26,8 @@ class TenantMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(CallCenterLocation)
 class CallCenterLocationAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "code", "tenant", "astdb_family")
-    list_filter = ("tenant",)
+    list_display = ("id", "name", "code", "tenant", "astdb_family", "is_active")
+    list_filter = ("tenant", "is_active")
     search_fields = ("name", "code", "astdb_family", "tenant__name", "tenant__code")
 
 

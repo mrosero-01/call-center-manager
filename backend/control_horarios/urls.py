@@ -2,9 +2,15 @@ from django.urls import path
 
 from .views import (
     AdminAsteriskImportPreviewView,
+    AdminAsteriskImportSelectedPreviewView,
+    AdminAsteriskImportSelectedView,
     AdminAsteriskImportView,
+    AdminAsteriskHealthView,
     AdminAsteriskInspectView,
+    AdminAsteriskInventoryView,
+    AdminLocationArchiveView,
     AdminLocationListCreateView,
+    AdminLocationRestoreView,
     AdminScheduleSyncJobListView,
     AdminScheduleSyncJobProcessView,
     AdminTenantListCreateView,
@@ -14,6 +20,8 @@ from .views import (
     LoginView,
     LogoutView,
     OperationSchedulePreviewView,
+    OperationScheduleAsteriskComparisonView,
+    OperationScheduleRefreshFromAsteriskView,
     OperationScheduleUpdateView,
     ScheduleChangeLogListView,
 )
@@ -56,6 +64,16 @@ urlpatterns = [
         name="operation-schedule-preview",
     ),
     path(
+        "locations/<int:location_id>/schedule/refresh-from-asterisk/",
+        OperationScheduleRefreshFromAsteriskView.as_view(),
+        name="operation-schedule-refresh-from-asterisk",
+    ),
+    path(
+        "locations/<int:location_id>/schedule/compare-asterisk/",
+        OperationScheduleAsteriskComparisonView.as_view(),
+        name="operation-schedule-compare-asterisk",
+    ),
+    path(
         "locations/<int:location_id>/schedule-changes/",
         ScheduleChangeLogListView.as_view(),
         name="schedule-change-log-list",
@@ -71,9 +89,29 @@ urlpatterns = [
         name="admin-location-list-create",
     ),
     path(
+        "admin/locations/<int:location_id>/archive/",
+        AdminLocationArchiveView.as_view(),
+        name="admin-location-archive",
+    ),
+    path(
+        "admin/locations/<int:location_id>/restore/",
+        AdminLocationRestoreView.as_view(),
+        name="admin-location-restore",
+    ),
+    path(
         "admin/asterisk/inspect/",
         AdminAsteriskInspectView.as_view(),
         name="admin-asterisk-inspect",
+    ),
+    path(
+        "admin/asterisk/inventory/",
+        AdminAsteriskInventoryView.as_view(),
+        name="admin-asterisk-inventory",
+    ),
+    path(
+        "admin/asterisk/health/",
+        AdminAsteriskHealthView.as_view(),
+        name="admin-asterisk-health",
     ),
     path(
         "admin/asterisk/import-preview/",
@@ -81,9 +119,19 @@ urlpatterns = [
         name="admin-asterisk-import-preview",
     ),
     path(
+        "admin/asterisk/import-selected-preview/",
+        AdminAsteriskImportSelectedPreviewView.as_view(),
+        name="admin-asterisk-import-selected-preview",
+    ),
+    path(
         "admin/asterisk/import/",
         AdminAsteriskImportView.as_view(),
         name="admin-asterisk-import",
+    ),
+    path(
+        "admin/asterisk/import-selected/",
+        AdminAsteriskImportSelectedView.as_view(),
+        name="admin-asterisk-import-selected",
     ),
     path(
         "admin/sync-jobs/",

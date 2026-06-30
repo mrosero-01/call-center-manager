@@ -26,6 +26,7 @@ class DjangoScheduleRepository:
         except OperationSchedule.DoesNotExist:
             return {
                 "timezone": None,
+                "updated_at": None,
                 "days": {},
             }
 
@@ -164,6 +165,9 @@ class DjangoScheduleRepository:
             "last_sync_error": schedule.last_sync_error,
             "last_synced_at": schedule.last_synced_at.isoformat()
             if schedule.last_synced_at
+            else None,
+            "updated_at": schedule.updated_at.isoformat()
+            if schedule.updated_at
             else None,
             "days": {
                 schedule_day.day_of_week: schedule_day.ranges

@@ -285,6 +285,12 @@
   line-height: 1.35;
 }
 
+.sync-warning.readonly-warning {
+  border-color: #bfdbfe;
+  color: #1e3a8a;
+  background: #eff6ff;
+}
+
 .schedule-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 350px;
@@ -319,6 +325,13 @@
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 10px;
+}
+
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .section-heading h2 {
@@ -406,6 +419,26 @@
   line-height: 1.35;
 }
 
+.schedule-source-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.schedule-source-bar span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbe2ec;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #526174;
+  background: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .preview-panel {
   display: grid;
   gap: 8px;
@@ -413,6 +446,59 @@
   padding: 10px;
   border: 1px solid #cbd5e1;
   background: #f8fafc;
+}
+
+.comparison-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  color: #912018;
+  background: #fff7f5;
+}
+
+.comparison-panel.in-sync {
+  border-color: #b7ead4;
+  color: #116149;
+  background: #f0fdf7;
+}
+
+.comparison-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.comparison-head strong {
+  font-size: 0.88rem;
+}
+
+.comparison-head span {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.comparison-list {
+  display: grid;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.comparison-list article {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.comparison-list article strong,
+.comparison-list article span {
+  font-size: 0.78rem;
 }
 
 .preview-head,
@@ -632,6 +718,24 @@
   min-width: 0;
 }
 
+.save-summary {
+  grid-column: 1 / -1;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: #526174;
+  background: #f1f5f9;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.save-summary.pending {
+  color: #075e56;
+  background: #dff7ed;
+}
+
 .save-feedback:empty {
   display: none;
 }
@@ -720,6 +824,13 @@
   line-height: 1.32;
 }
 
+.audit-item p {
+  margin: 0;
+  color: #334155;
+  font-size: 0.78rem;
+  line-height: 1.32;
+}
+
 .audit-item span,
 .audit-item time,
 .muted {
@@ -734,6 +845,17 @@
 .state-band {
   padding: 22px;
   color: #526174;
+}
+
+.dashboard-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .admin-layout {
@@ -773,7 +895,7 @@
 }
 
 .admin-form.import-form {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(180px, 1fr) auto auto auto;
 }
 
 .admin-result-grid {
@@ -839,10 +961,15 @@
   margin-bottom: 10px;
 }
 
+.mini-metrics.inventory-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
 .mini-metrics > div {
   display: grid;
   gap: 4px;
-  padding: 10px;
+  padding: 9px 10px;
 }
 
 .mini-metrics span {
@@ -852,7 +979,74 @@
 
 .mini-metrics strong {
   color: #172033;
-  font-size: 1.2rem;
+  font-size: 1.12rem;
+}
+
+.import-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.import-flow article {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #dbe8e4;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.import-flow article span {
+  grid-row: 1 / 3;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.import-flow article strong {
+  color: #172033;
+  font-size: 0.84rem;
+}
+
+.import-flow article small {
+  color: #64748b;
+  font-size: 0.74rem;
+  line-height: 1.3;
+}
+
+.import-control-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #dbe2ec;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.manual-admin-forms {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px dashed #b6c3d4;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.manual-admin-forms section {
+  min-width: 0;
 }
 
 .side-actions {
@@ -860,6 +1054,40 @@
   grid-template-columns: 1fr;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.full-button {
+  width: 100%;
+}
+
+.health-card {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #b7ead4;
+  border-radius: 8px;
+  color: #116149;
+  background: #f0fdf7;
+}
+
+.health-card.failed {
+  border-color: #fecdca;
+  color: #912018;
+  background: #fff7f5;
+}
+
+.health-card strong {
+  color: inherit;
+}
+
+.health-card span,
+.health-card small {
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .job-list,
@@ -878,6 +1106,256 @@
   padding: 10px;
 }
 
+.job-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px 8px;
+}
+
+.job-item > div {
+  min-width: 0;
+}
+
+.job-item > small {
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
+.job-item .job-error {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: #b42318;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-location-list article {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 7px;
+}
+
+.admin-location-list article.inactive {
+  opacity: 0.78;
+  background: #f8fafc;
+}
+
+.location-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.location-main strong,
+.location-main span,
+.admin-location-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-location-list code {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border-radius: 6px;
+  padding: 5px 7px;
+  color: #334155;
+  background: #f1f5f9;
+  font-size: 0.72rem;
+}
+
+.location-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.location-actions .status-pill {
+  margin-right: auto;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #075e56;
+  background: #dff7ed;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.status-pill.inactive {
+  color: #526174;
+  background: #e2e8f0;
+}
+
+.compact-button {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 0.78rem;
+}
+
+.inventory-table-wrap {
+  max-height: 430px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.inventory-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.inventory-toolbar strong {
+  color: #172033;
+  font-size: 0.9rem;
+}
+
+.inventory-toolbar div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.inventory-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+  background: #ffffff;
+}
+
+.inventory-table th,
+.inventory-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #edf2f7;
+  color: #334155;
+  font-size: 0.78rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.inventory-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #526174;
+  background: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.inventory-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.inventory-table code {
+  color: #172033;
+  font-size: 0.78rem;
+}
+
+.inventory-table .muted-row {
+  background: #fbfcfe;
+}
+
+.inventory-table .muted-row td {
+  color: #64748b;
+}
+
+.collapsed-inventory {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.collapsed-inventory > button {
+  justify-self: start;
+}
+
+.collapsed-inventory > button span {
+  min-width: 22px;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #526174;
+  background: #e2e8f0;
+  font-size: 0.72rem;
+}
+
+.context-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.context-grid article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #edf2f7;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.context-grid code,
+.context-grid span,
+.context-grid strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-grid code {
+  color: #172033;
+  font-size: 0.78rem;
+}
+
+.context-grid span,
+.context-grid strong {
+  color: #64748b;
+  font-size: 0.74rem;
+}
+
+.django-state,
+.action-label {
+  display: inline-block;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.django-state {
+  color: #334155;
+}
+
+.django-state.missing {
+  color: #64748b;
+}
+
+.action-label {
+  color: #1f476f;
+  font-size: 0.78rem;
+}
+
 .job-item.failed {
   border-color: #fecdca;
   background: #fff7f5;
@@ -890,11 +1368,13 @@
 }
 
 .admin-feedback {
-  position: fixed;
-  right: 22px;
-  bottom: 18px;
+  position: sticky;
+  right: auto;
+  bottom: 12px;
   z-index: 30;
-  width: min(460px, calc(100vw - 44px));
+  width: min(520px, 100%);
+  margin-top: 12px;
+  margin-left: auto;
   display: grid;
   gap: 8px;
 }
@@ -910,10 +1390,12 @@
   }
 
   .admin-layout,
+  .import-flow,
   .admin-form.two-columns,
   .admin-form.location-form,
   .admin-form.import-form,
-  .admin-result-grid {
+  .admin-result-grid,
+  .mini-metrics.inventory-metrics {
     grid-template-columns: 1fr;
   }
 
@@ -958,8 +1440,14 @@
   .rule-list,
   .range-item,
   .schedule-note,
-  .save-dock {
+  .save-dock,
+  .mini-metrics.inventory-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .inventory-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .section-heading,

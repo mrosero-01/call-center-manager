@@ -4,9 +4,12 @@ import { Observable } from 'rxjs';
 
 import {
   AdminCallCenterLocation,
+  AsteriskHealth,
   AsteriskImportPreview,
   AsteriskImportRequest,
   AsteriskImportResult,
+  AsteriskImportSelectedRequest,
+  AsteriskInventoryResult,
   AsteriskInspectResult,
   CallCenterLocation,
   CreateLocationPayload,
@@ -14,6 +17,7 @@ import {
   ProcessSyncJobsPayload,
   ProcessSyncJobsResult,
   ScheduleChangeLog,
+  ScheduleAsteriskComparison,
   SchedulePreview,
   SchedulePreviewPayload,
   ScheduleSnapshot,
@@ -50,6 +54,18 @@ export class ScheduleApiService {
     });
   }
 
+  refreshScheduleFromAsterisk(locationId: number): Observable<ScheduleSnapshot> {
+    return this.http.post<ScheduleSnapshot>(`/api/locations/${locationId}/schedule/refresh-from-asterisk/`, {}, {
+      withCredentials: true
+    });
+  }
+
+  compareScheduleWithAsterisk(locationId: number): Observable<ScheduleAsteriskComparison> {
+    return this.http.get<ScheduleAsteriskComparison>(`/api/locations/${locationId}/schedule/compare-asterisk/`, {
+      withCredentials: true
+    });
+  }
+
   getChangeLogs(locationId: number): Observable<ScheduleChangeLog[]> {
     return this.http.get<ScheduleChangeLog[]>(`/api/locations/${locationId}/schedule-changes/`, {
       withCredentials: true
@@ -80,8 +96,32 @@ export class ScheduleApiService {
     });
   }
 
+  archiveAdminLocation(locationId: number): Observable<AdminCallCenterLocation> {
+    return this.http.post<AdminCallCenterLocation>(`/api/admin/locations/${locationId}/archive/`, {}, {
+      withCredentials: true
+    });
+  }
+
+  restoreAdminLocation(locationId: number): Observable<AdminCallCenterLocation> {
+    return this.http.post<AdminCallCenterLocation>(`/api/admin/locations/${locationId}/restore/`, {}, {
+      withCredentials: true
+    });
+  }
+
   inspectAsterisk(): Observable<AsteriskInspectResult> {
     return this.http.get<AsteriskInspectResult>('/api/admin/asterisk/inspect/', {
+      withCredentials: true
+    });
+  }
+
+  getAsteriskInventory(): Observable<AsteriskInventoryResult> {
+    return this.http.get<AsteriskInventoryResult>('/api/admin/asterisk/inventory/', {
+      withCredentials: true
+    });
+  }
+
+  getAsteriskHealth(): Observable<AsteriskHealth> {
+    return this.http.get<AsteriskHealth>('/api/admin/asterisk/health/', {
       withCredentials: true
     });
   }
@@ -92,8 +132,20 @@ export class ScheduleApiService {
     });
   }
 
+  previewSelectedAsteriskImport(payload: AsteriskImportSelectedRequest): Observable<AsteriskImportPreview> {
+    return this.http.post<AsteriskImportPreview>('/api/admin/asterisk/import-selected-preview/', payload, {
+      withCredentials: true
+    });
+  }
+
   importAsteriskSchedules(payload: AsteriskImportRequest): Observable<AsteriskImportResult> {
     return this.http.post<AsteriskImportResult>('/api/admin/asterisk/import/', payload, {
+      withCredentials: true
+    });
+  }
+
+  importSelectedAsteriskSchedules(payload: AsteriskImportSelectedRequest): Observable<AsteriskImportResult> {
+    return this.http.post<AsteriskImportResult>('/api/admin/asterisk/import-selected/', payload, {
       withCredentials: true
     });
   }
