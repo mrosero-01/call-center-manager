@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 
 import {
   AdminCallCenterLocation,
+  AdminTenantMembership,
   AsteriskHealth,
   AsteriskImportPreview,
   AsteriskImportRequest,
@@ -14,6 +15,7 @@ import {
   CallCenterLocation,
   CreateLocationPayload,
   CreateTenantPayload,
+  CreateTenantUserPayload,
   ProcessSyncJobsPayload,
   ProcessSyncJobsResult,
   ScheduleChangeLog,
@@ -92,6 +94,18 @@ export class ScheduleApiService {
 
   createAdminLocation(payload: CreateLocationPayload): Observable<AdminCallCenterLocation> {
     return this.http.post<AdminCallCenterLocation>('/api/admin/locations/', payload, {
+      withCredentials: true
+    });
+  }
+
+  getAdminMemberships(): Observable<AdminTenantMembership[]> {
+    return this.http.get<AdminTenantMembership[]>('/api/admin/memberships/', {
+      withCredentials: true
+    });
+  }
+
+  createAdminTenantUser(payload: CreateTenantUserPayload): Observable<AdminTenantMembership> {
+    return this.http.post<AdminTenantMembership>('/api/admin/memberships/', payload, {
       withCredentials: true
     });
   }

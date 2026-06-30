@@ -47,7 +47,9 @@ from .permissions import (
 )
 from .serializers import (
     AdminCallCenterLocationSerializer,
+    AdminTenantMembershipSerializer,
     AdminTenantSerializer,
+    AdminTenantUserCreateSerializer,
     AsteriskImportSelectedRequestSerializer,
     AsteriskImportRequestSerializer,
     CallCenterLocationSerializer,
@@ -430,6 +432,25 @@ class AdminLocationListCreateView(SuperuserOnlyMixin, APIView):
 
         return Response(
             AdminCallCenterLocationSerializer(location).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class AdminTenantMembershipListCreateView(SuperuserOnlyMixin, APIView):
+    def get(self, request):
+        memberships = TenantMembership.objects.select_related("tenant", "user").all()
+        serializer = AdminTenantMembershipSerializer(memberships, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = AdminTenantUserCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        membership = serializer.save()
+
+        return Response(
+            AdminTenantMembershipSerializer(membership).data,
             status=status.HTTP_201_CREATED,
         )
 

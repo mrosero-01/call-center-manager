@@ -933,6 +933,10 @@
   grid-template-columns: 190px repeat(3, minmax(0, 1fr)) auto;
 }
 
+.admin-form.tenant-user-form {
+  grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1fr) 150px auto;
+}
+
 .admin-form.import-form {
   grid-template-columns: minmax(150px, 0.7fr) minmax(180px, 1fr) auto auto auto;
 }
@@ -1130,7 +1134,8 @@
 }
 
 .job-list,
-.admin-location-list {
+.admin-location-list,
+.membership-list {
   display: grid;
   gap: 8px;
   max-height: 260px;
@@ -1139,10 +1144,32 @@
 }
 
 .job-item,
-.admin-location-list article {
+.admin-location-list article,
+.membership-list article {
   display: grid;
   gap: 4px;
   padding: 10px;
+}
+
+.membership-list article {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.membership-list article div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.membership-list strong,
+.membership-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .job-item {
@@ -1432,6 +1459,7 @@
   .import-flow,
   .admin-form.two-columns,
   .admin-form.location-form,
+  .admin-form.tenant-user-form,
   .admin-form.import-form,
   .admin-result-grid,
   .mini-metrics.inventory-metrics {

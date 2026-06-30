@@ -24,6 +24,7 @@ import {
 import { AuthService } from '../../core/auth.service';
 import {
   AdminCallCenterLocation,
+  AdminTenantMembership,
   AsteriskHealth,
   AsteriskFamilyPreview,
   AsteriskImportPreview,
@@ -126,6 +127,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   readonly errorMessage = signal('');
   readonly adminTenants = signal<Tenant[]>([]);
   readonly adminLocations = signal<AdminCallCenterLocation[]>([]);
+  readonly adminMemberships = signal<AdminTenantMembership[]>([]);
   readonly asteriskInventory = signal<AsteriskInventoryItem[]>([]);
   readonly asteriskHealth = signal<AsteriskHealth | null>(null);
   readonly asteriskHealthLoading = signal(false);
@@ -146,6 +148,17 @@ export class DashboardComponent implements OnInit, OnDestroy {
     name: '',
     code: '',
     astdb_family: ''
+  });
+  readonly tenantUserForm = signal<{
+    tenant_id: number;
+    username: string;
+    password: string;
+    role: 'admin' | 'operator';
+  }>({
+    tenant_id: 0,
+    username: '',
+    password: '',
+    role: 'admin'
   });
   readonly importForm = signal({
     tenant_code: 'pas',
@@ -459,6 +472,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.clearAdminMessages();
   }
 
+  updateTenantUserForm(field: 'tenant_id' | 'username' | 'password' | 'role', value: string | number): void {
+    this.tenantUserForm.update((form) => ({
+      ...form,
+      [field]: field === 'tenant_id' ? Number(value) : value
+    }));
+    this.clearAdminMessages();
+  }
+
   useInventoryFamily(item: AsteriskInventoryItem): void {
     this.locationForm.update((form) => ({
       ...form,
@@ -534,6 +555,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.adminActionLabel.set('');
         this.tenantForm.set({ name: '', code: '' });
         this.locationForm.update((form) => ({ ...form, tenant_id: tenant.id }));
+        this.tenantUserForm.update((form) => ({ ...form, tenant_id: tenant.id }));
         this.setAdminStatusMessage('Cliente creado correctamente.');
         this.loadAdminData();
       },
@@ -576,6 +598,43 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.setAdminStatusMessage('Call center creado correctamente.');
         this.loadAdminData();
         this.loadLocations();
+      },
+      error: (error: unknown) => {
+        this.adminActionLoading.set(false);
+        this.adminActionLabel.set('');
+        this.adminErrorMessage.set(this.resolveErrorMessage(error));
+      }
+    });
+  }
+
+  createTenantUser(): void {
+    const payload = {
+      tenant_id: this.tenantUserForm().tenant_id,
+      username: this.tenantUserForm().username.trim(),
+      password: this.tenantUserForm().password,
+      role: this.tenantUserForm().role
+    };
+
+    if (!payload.tenant_id || !payload.username || !payload.password || !payload.role) {
+      this.adminErrorMessage.set('Cliente, usuario, contraseña y rol son obligatorios.');
+      return;
+    }
+
+    if (payload.password.length < 8) {
+      this.adminErrorMessage.set('La contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    this.adminActionLoading.set(true);
+    this.adminActionLabel.set('Creando usuario...');
+    this.clearAdminMessages();
+    this.api.createAdminTenantUser(payload).subscribe({
+      next: () => {
+        this.adminActionLoading.set(false);
+        this.adminActionLabel.set('');
+        this.tenantUserForm.update((form) => ({ ...form, username: '', password: '' }));
+        this.setAdminStatusMessage('Usuario tenant creado correctamente.');
+        this.loadAdminData();
       },
       error: (error: unknown) => {
         this.adminActionLoading.set(false);
@@ -1221,6 +1280,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
         if (tenants.length > 0 && this.locationForm().tenant_id === 0) {
           this.locationForm.update((form) => ({ ...form, tenant_id: tenants[0].id }));
         }
+        if (tenants.length > 0 && this.tenantUserForm().tenant_id === 0) {
+          this.tenantUserForm.update((form) => ({ ...form, tenant_id: tenants[0].id }));
+        }
       },
       error: () => this.adminErrorMessage.set('No se pudieron cargar los clientes.')
     });
@@ -1237,6 +1299,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.syncJobs.set([]);
         this.adminLoading.set(false);
       }
+    });
+    this.api.getAdminMemberships().subscribe({
+      next: (memberships) => this.adminMemberships.set(memberships),
+      error: () => this.adminMemberships.set([])
     });
   }
 

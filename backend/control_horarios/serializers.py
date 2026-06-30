@@ -1,3 +1,5 @@
+from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework import serializers
 
 from .application.schedule_rules import normalize_ranges
@@ -46,6 +48,56 @@ class TenantMembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = TenantMembership
         fields = ("tenant", "role")
+
+
+class AdminTenantMembershipSerializer(serializers.ModelSerializer):
+    tenant = TenantSerializer(read_only=True)
+    username = serializers.CharField(source="user.username", read_only=True)
+
+    class Meta:
+        model = TenantMembership
+        fields = ("id", "username", "tenant", "role", "is_active", "created_at")
+
+
+class AdminTenantUserCreateSerializer(serializers.Serializer):
+    tenant_id = serializers.PrimaryKeyRelatedField(
+        queryset=Tenant.objects.all(),
+        source="tenant",
+    )
+    username = serializers.CharField(max_length=150, trim_whitespace=True)
+    password = serializers.CharField(
+        min_length=8,
+        max_length=128,
+        trim_whitespace=False,
+        write_only=True,
+    )
+    role = serializers.ChoiceField(
+        choices=TenantMembership.Role.choices,
+        default=TenantMembership.Role.ADMIN,
+    )
+
+    def validate_username(self, username):
+        User = get_user_model()
+
+        if User.objects.filter(username=username).exists():
+            raise serializers.ValidationError("Ya existe un usuario con ese nombre.")
+
+        return username
+
+    @transaction.atomic
+    def create(self, validated_data):
+        User = get_user_model()
+        tenant = validated_data["tenant"]
+        user = User.objects.create_user(
+            username=validated_data["username"],
+            password=validated_data["password"],
+        )
+
+        return TenantMembership.objects.create(
+            tenant=tenant,
+            user=user,
+            role=validated_data["role"],
+        )
 
 
 class CurrentUserSerializer(serializers.Serializer):

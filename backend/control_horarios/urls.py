@@ -13,6 +13,7 @@ from .views import (
     AdminLocationRestoreView,
     AdminScheduleSyncJobListView,
     AdminScheduleSyncJobProcessView,
+    AdminTenantMembershipListCreateView,
     AdminTenantListCreateView,
     CallCenterLocationListView,
     CurrentUserView,
@@ -87,6 +88,11 @@ urlpatterns = [
         "admin/locations/",
         AdminLocationListCreateView.as_view(),
         name="admin-location-list-create",
+    ),
+    path(
+        "admin/memberships/",
+        AdminTenantMembershipListCreateView.as_view(),
+        name="admin-membership-list-create",
     ),
     path(
         "admin/locations/<int:location_id>/archive/",

@@ -282,6 +282,61 @@
                     </button>
                   </div>
                 </section>
+
+                <section>
+                  <div class="section-heading compact">
+                    <div>
+                      <p>Usuarios</p>
+                      <h2>Crear acceso tenant</h2>
+                    </div>
+                  </div>
+                  <div class="admin-form tenant-user-form">
+                    <label>
+                      Cliente
+                      <select
+                        [ngModel]="tenantUserForm().tenant_id"
+                        (ngModelChange)="updateTenantUserForm('tenant_id', $event)"
+                      >
+                        <option [ngValue]="0">Selecciona cliente</option>
+                        @for (tenant of adminTenants(); track tenant.id) {
+                          <option [ngValue]="tenant.id">{{ tenant.name }} / {{ tenant.code }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label>
+                      Usuario
+                      <input
+                        type="text"
+                        [ngModel]="tenantUserForm().username"
+                        (ngModelChange)="updateTenantUserForm('username', $event)"
+                        placeholder="admin_pas"
+                      />
+                    </label>
+                    <label>
+                      Contraseña
+                      <input
+                        type="password"
+                        [ngModel]="tenantUserForm().password"
+                        (ngModelChange)="updateTenantUserForm('password', $event)"
+                        placeholder="mínimo 8 caracteres"
+                      />
+                    </label>
+                    <label>
+                      Rol
+                      <select
+                        [ngModel]="tenantUserForm().role"
+                        (ngModelChange)="updateTenantUserForm('role', $event)"
+                      >
+                        <option value="admin">Admin tenant</option>
+                        <option value="operator">Operador lectura</option>
+                      </select>
+                    </label>
+                    <button type="button" class="primary-light-button" (click)="createTenantUser()" [disabled]="adminActionLoading()">
+                      <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                      <span>Crear usuario</span>
+                    </button>
+                  </div>
+                </section>
               </div>
             }
 
@@ -537,6 +592,30 @@
                 </article>
               } @empty {
                 <p class="muted">Sin call centers creados</p>
+              }
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="section-heading compact">
+              <div>
+                <p>Accesos</p>
+                <h2>Usuarios tenant</h2>
+              </div>
+            </div>
+            <div class="membership-list">
+              @for (membership of adminMemberships(); track membership.id) {
+                <article>
+                  <div>
+                    <strong>{{ membership.username }}</strong>
+                    <span>{{ membership.tenant.code }}</span>
+                  </div>
+                  <span class="status-pill" [class.inactive]="membership.role !== 'admin'">
+                    {{ membership.role === 'admin' ? 'Admin' : 'Lectura' }}
+                  </span>
+                </article>
+              } @empty {
+                <p class="muted">Sin usuarios tenant</p>
               }
             </div>
           </section>

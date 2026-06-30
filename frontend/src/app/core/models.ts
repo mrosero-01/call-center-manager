@@ -93,6 +93,15 @@ export interface AdminCallCenterLocation {
   is_active: boolean;
 }
 
+export interface AdminTenantMembership {
+  id: number;
+  username: string;
+  tenant: Tenant;
+  role: 'admin' | 'operator';
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface CreateTenantPayload {
   name: string;
   code: string;
@@ -103,6 +112,13 @@ export interface CreateLocationPayload {
   name: string;
   code: string;
   astdb_family: string;
+}
+
+export interface CreateTenantUserPayload {
+  tenant_id: number;
+  username: string;
+  password: string;
+  role: 'admin' | 'operator';
 }
 
 export interface AsteriskFamilyPreview {

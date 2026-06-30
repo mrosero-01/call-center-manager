@@ -1958,6 +1958,32 @@ class SuperadminOperationApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_superuser_can_create_tenant_user_membership(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        response = self.client.post(
+            reverse("admin-membership-list-create"),
+            {
+                "tenant_id": self.tenant.id,
+                "username": "admin_pas",
+                "password": "siptic1234",
+                "role": TenantMembership.Role.ADMIN,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["username"], "admin_pas")
+        self.assertEqual(response.data["tenant"]["code"], "pas")
+        self.assertEqual(response.data["role"], TenantMembership.Role.ADMIN)
+        self.assertTrue(
+            TenantMembership.objects.filter(
+                user__username="admin_pas",
+                tenant=self.tenant,
+                role=TenantMembership.Role.ADMIN,
+            ).exists()
+        )
+
     def test_superuser_can_archive_and_restore_location(self):
         location = CallCenterLocation.objects.create(
             tenant=self.tenant,
